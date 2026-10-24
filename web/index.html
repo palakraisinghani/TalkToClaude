@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buddy</title>
+<style>
+  :root {
+    --bg: #f6f4ee; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6d67; --line: #e5e1d6;
+    --accent: #d97757; --listen: #3d7be0; --think: #c99a2e; --speak: #2f9e6a; --danger: #d64545;
+    --orb-a: #f1a184; --orb-b: #d97757; --glow: rgba(217,119,87,.35);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e; --glow: rgba(217,119,87,.45);
+  } }
+  :root[data-theme="dark"] { --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e; --glow: rgba(217,119,87,.45); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  .pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.ok { color: var(--speak); border-color: color-mix(in srgb, var(--speak) 40%, transparent); }
+  .pill.warn { color: var(--think); }
+  .spacer { flex: 1; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+  .toggle input { accent-color: var(--accent); }
+  header input[type=number] { width: 3.4em; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.15fr); min-height: 0; }
+  body.audio main { grid-template-columns: 1fr; }
+  body.audio #feedWrap { display: none; }
+
+  /* call column */
+  #call { min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 24px 20px; gap: 14px; min-height: 0; overflow: auto; }
+  .who { text-align: center; }
+  .who .name { font-size: 22px; font-weight: 600; }
+  .who .sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .orb-wrap { position: relative; width: 210px; height: 210px; display: grid; place-items: center; margin: 8px 0; }
+  .orb { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--orb-a), var(--orb-b) 60%, #9c4a31); box-shadow: 0 0 60px var(--glow); transition: transform .12s ease, filter .3s; }
+  .ring { position: absolute; inset: 18px; border-radius: 50%; border: 2px solid var(--orb-b); opacity: 0; }
+  [data-state="asleep"] .orb { filter: grayscale(1) brightness(.8); box-shadow: none; }
+  [data-state="listening"] .orb { animation: breathe 3.2s ease-in-out infinite; }
+  [data-state="hearing"] .orb { --orb-a: #8fb4f5; --orb-b: var(--listen); --glow: rgba(61,123,224,.45); transform: scale(calc(1 + var(--level, 0) * .14)); }
+  [data-state="hearing"] .ring { border-color: var(--listen); animation: ripple 1.2s ease-out infinite; }
+  [data-state="thinking"] .orb { --orb-a: #f0cf7e; --orb-b: var(--think); --glow: rgba(201,154,46,.4); animation: swirl 2.4s linear infinite; }
+  [data-state="speaking"] .orb { --orb-a: #8ee0b6; --orb-b: var(--speak); --glow: rgba(47,158,106,.45); }
+  [data-state="speaking"] .orb.beat { transform: scale(1.06); }
+  [data-state="speaking"] .ring { border-color: var(--speak); animation: ripple 1.6s ease-out infinite; }
+  [data-state="paused"] .orb { --orb-a: #d9d5cb; --orb-b: #9b968a; --glow: rgba(155,150,138,.35); }
+  @keyframes breathe { 50% { transform: scale(1.04); filter: brightness(1.08); } }
+  @keyframes swirl { 0% { filter: hue-rotate(0deg); transform: rotate(0) scale(1.02); } 100% { filter: hue-rotate(25deg); transform: rotate(360deg) scale(1.02); } }
+  @keyframes ripple { 0% { transform: scale(.8); opacity: .7; } 100% { transform: scale(1.25); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .orb, .ring { animation: none !important; } }
+  #stateLabel { font-weight: 600; letter-spacing: .3px; text-transform: lowercase; color: var(--muted); }
+
+  .captions { width: min(560px, 100%); display: grid; gap: 8px; }
+  .cap { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; min-height: 44px; }
+  .cap .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  .cap.you .txt { color: var(--muted); }
+  .cap.buddy .txt .done { color: var(--ink); }
+  .cap.buddy .txt .now { background: color-mix(in srgb, var(--speak) 25%, transparent); border-radius: 4px; }
+  .cap.buddy .txt .todo { color: var(--muted); }
+  #paused { display: none; width: min(560px, 100%); border: 1px dashed var(--think); color: var(--ink); background: color-mix(in srgb, var(--think) 10%, transparent); border-radius: 12px; padding: 8px 14px; font-size: 14px; }
+  body.is-paused #paused { display: block; }
+
+  .controls { display: flex; gap: 14px; align-items: center; margin-top: 4px; }
+  .btn { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 20px; cursor: pointer; display: grid; place-items: center; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .btn.on { background: var(--ink); color: var(--bg); }
+  .btn.call { width: 68px; height: 68px; background: var(--speak); color: white; border: none; font-size: 26px; }
+  .btn.call.end { background: var(--danger); }
+  .btn small { display: block; font-size: 10px; }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 460px; }
+  form#typeForm { width: min(560px, 100%); display: flex; gap: 8px; }
+  form#typeForm input { flex: 1; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
+
+  /* behind the scenes */
+  #feedWrap { min-width: 0; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: color-mix(in srgb, var(--card) 55%, var(--bg)); }
+  #feedWrap h2 { margin: 0; padding: 12px 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+  #feed { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
+  .turn { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .turn.stale { opacity: .6; }
+  .turn .q { overflow-wrap: anywhere; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+  .turn .q .st { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  details.think { font-size: 13px; color: var(--muted); font-style: italic; }
+  details.think summary { cursor: pointer; font-style: normal; }
+  details.think div { white-space: pre-wrap; tab-size: 4; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+  .aside { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; tab-size: 4; overflow-wrap: anywhere; }
+  /* tools: one line when closed, verbatim input and output when opened */
+  .tool { font-family: var(--mono); font-size: 12px; border-radius: 8px; background: color-mix(in srgb, var(--line) 45%, transparent); min-width: 0; }
+  .tool summary { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; cursor: pointer; list-style: none; min-width: 0; }
+  .tool summary::-webkit-details-marker { display: none; }
+  .tool .lbl { white-space: nowrap; }
+  .tool .res { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .tool.ok .mark { color: var(--speak); } .tool.bad .mark { color: var(--danger); }
+  .tool .io { margin: 0 8px 8px; max-height: 280px; }
+  .tool .io.in { border-left: 3px solid var(--listen); }
+  .tool .io.out { border-left: 3px solid var(--line); }
+  .said { border-left: 3px solid var(--speak); padding-left: 10px; overflow-wrap: anywhere; }
+  .screen { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .screen p { margin: 0 0 8px; }
+  .screen ul, .screen ol { margin: 0 0 8px; padding-left: 1.4em; }
+  .screen .h { font-weight: 600; margin: 8px 0 4px; } .screen .h1, .screen .h2 { font-size: 16px; }
+  .screen .tbl { overflow-x: auto; margin-bottom: 8px; }
+  .screen table { border-collapse: collapse; font-size: 13px; }
+  .screen th, .screen td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+  /* code keeps every space and newline; long lines scroll inside the block instead of wrapping */
+  pre { background: var(--bg); padding: 8px 10px; border-radius: 8px; overflow: auto; font: 12.5px/1.45 var(--mono); white-space: pre; tab-size: 4; margin: 0 0 8px; overflow-wrap: normal; }
+  pre code { background: none; padding: 0; font: inherit; white-space: inherit; }
+  .screen code { font-family: var(--mono); background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
+  .err { color: var(--danger); font-size: 13px; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    #feedWrap { border-left: none; border-top: 1px solid var(--line); min-height: 50vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Buddy</h1>
+  <span id="ears" class="pill">ears loading…</span>
+  <span class="spacer"></span>
+  <label class="toggle" title="Instant barge-in. Turn on when Buddy's voice cannot reach your mic."><input type="checkbox" id="phones"> headphones</label>
+  <label class="toggle"><input type="checkbox" id="audioOnly"> audio-only</label>
+  <label class="toggle">sleep after <input id="sleep" type="number" min="2" max="60"> min</label>
+</header>
+<main>
+  <section id="call" data-state="asleep">
+    <div class="who"><div class="name">Buddy</div><div class="sub" id="timer">not connected</div></div>
+    <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
+    <div id="stateLabel">asleep</div>
+    <div id="paused">Paused at “<span id="pausedAt"></span>”. Say <b>go on</b> to continue, or just ask something else.</div>
+    <div class="captions">
+      <div class="cap you"><div class="lbl">You</div><div class="txt" id="capYou">—</div></div>
+      <div class="cap buddy"><div class="lbl">Buddy</div><div class="txt" id="capBuddy">—</div></div>
+    </div>
+    <div class="controls">
+      <button class="btn" id="muteBtn" title="Mute mic" disabled>🎙️</button>
+      <button class="btn call" id="callBtn" title="Start call">📞</button>
+      <button class="btn" id="pauseBtn" title="Pause Buddy" disabled>⏸</button>
+    </div>
+    <form id="typeForm" autocomplete="off"><input id="typeBox" placeholder="…or type to Buddy" disabled></form>
+    <div class="hint">Just talk, like a call. Say <b>pause</b> to hold Buddy, <b>go on</b> to continue, or talk over it to change direction. Also: stop, repeat, shorter, go to sleep.</div>
+  </section>
+  <section id="feedWrap">
+    <h2><span>Behind the scenes</span><span id="feedState"></span></h2>
+    <div id="feed"></div>
+  </section>
+</main>
+<script src="/vendor/ort/ort.wasm.min.js"></script>
+<script src="/vendor/vad/bundle.min.js"></script>
+<script src="app.js" type="module"></script>
+</body>
+</html>
