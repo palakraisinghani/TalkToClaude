@@ -42,8 +42,10 @@ test("cleaner", () => {
 });
 
 test("call context", () => {
-  assert.equal(formatContext("visual"), "[call · visual+audio]");
+  assert.equal(formatContext("visual"), "[call · visual+audio · you are on the line]");
+  // a project working in the background is told so, because its words are not spoken aloud
+  assert.match(formatContext("visual", null, false), /you are in the background, your words are not spoken/);
   const s = formatContext("audio", { kind: "paused", pausedMs: 6200, heard: "The cache is stale because", unheard: ["It never expires.", "Want the fix?"], working: true });
-  assert.equal(s, '[call · audio-only] [cut in: the user said pause 6s ago; the last thing they heard was "The cache is stale because"; they did not hear 2 more sentences: "It never expires. Want the fix?"; your previous work was stopped]');
+  assert.equal(s, '[call · audio-only · you are on the line] [cut in: the user said pause 6s ago; the last thing they heard was "The cache is stale because"; they did not hear 2 more sentences: "It never expires. Want the fix?"; your previous work was stopped]');
   assert.match(formatContext("visual", { kind: "interrupted" }), /talked over you/);
 });

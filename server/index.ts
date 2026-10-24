@@ -1,21 +1,28 @@
-import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { mkdir, readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
-import { ClaudeSession } from "./agent.ts";
-import { clean } from "./cleaner.ts";
-import { formatContext, type CallContext } from "./context.ts";
-import { narrate, toolDetail, toolLabel } from "./narration.ts";
-import { ReplyParser, type ParsedEvent } from "./parser.ts";
+import { Auth } from "./auth.ts";
+import { Call } from "./call.ts";
+import { ensureCert, localAddresses, multiplex } from "./tls.ts";
+import { CENTRAL, CENTRAL_NAME } from "./identity.ts";
+import { loadProjects } from "./projects.ts";
 import { MoonshineSTT } from "./stt.ts";
 import type { Mode, Rewriter } from "./types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const webDir = join(root, "web");
 const workDir = resolve(process.env.BUDDY_CWD ?? join(root, "session"));
+const callsDir = resolve(process.env.BUDDY_CALLS_DIR ?? join(root, "calls"));
 const PORT = Number(process.env.PORT ?? 3000);
+// localhost only unless you say otherwise: reaching Buddy is as good as a shell on this machine
+const HOST = process.env.BUDDY_HOST ?? "127.0.0.1";
+const onLan = HOST === "0.0.0.0" || HOST === "::";
+// TLS is required away from localhost, because the microphone needs a secure context
+const useTls = process.env.BUDDY_TLS === "1" || (onLan && process.env.BUDDY_TLS !== "0");
 const TYPES: Record<string, string> = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
   ".wasm": "application/wasm", ".onnx": "application/octet-stream",
@@ -26,14 +33,16 @@ const STATIC: [string, string][] = [
   ["/vendor/ort/", join(root, "node_modules", "onnxruntime-web", "dist")],
   ["/", webDir],
 ];
-const FILLER_MS = 3500;
-const NARRATE_GAP_MS = 6000;
 
 const systemPrompt = ["VOICE.md", "examples.md", "condensation.md"]
   .map((f) => readFileSync(join(root, "skill", "claude-call", f), "utf8"))
   .join("\n\n");
 
 const rewriter: Rewriter = { toSpeech: async (x) => x };
+
+const projects = await loadProjects(root, workDir);
+// a project's directory must exist before Claude can be spawned in it
+await Promise.all(projects.map((p) => mkdir(p.dir, { recursive: true })));
 
 let sttState: "loading" | "ready" | "error" = "loading";
 const stt = new MoonshineSTT();
@@ -43,7 +52,10 @@ stt.ready().then(
   (e) => { sttState = "error"; console.error("Speech recognition failed to load:", e); },
 ).finally(() => { for (const ws of sockets) ws.send(JSON.stringify({ type: "stt", state: sttState })); });
 
-const http = createServer(async (req, res) => {
+const auth = new Auth();
+const tls = useTls ? await ensureCert(join(root, "certs")) : null;
+
+const handler = async (req: any, res: any) => {
   try {
     const url = decodeURIComponent((req.url ?? "/").split("?")[0]);
     const [prefix, dir] = STATIC.find(([p]) => url.startsWith(p))!;
@@ -54,86 +66,63 @@ const http = createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end("not found");
   }
-});
+};
 
-const wss = new WebSocketServer({ server: http });
+const secure = tls ? createHttpsServer({ key: tls.key, cert: tls.cert }, handler) : null;
+const http = secure ?? createHttpServer(handler);
+
+/** Over TLS, a plain http request to the same port is answered with a redirect, not a dead socket. */
+const redirector = secure
+  ? createHttpServer((req, res) => {
+      const host = String(req.headers.host ?? `localhost:${PORT}`);
+      res.writeHead(308, { location: `https://${host}${req.url ?? "/"}`, "cache-control": "no-store" }).end("Buddy is served over https.");
+    })
+  : null;
+const front = secure && redirector ? multiplex(secure, redirector) : http;
+
+/**
+ * The access code travels as a WebSocket subprotocol rather than in the URL, so it never lands
+ * in browser history or a proxy log. Nothing behind this handshake is reachable without it.
+ */
+const wss = new WebSocketServer({
+  server: http,
+  handleProtocols: (protocols: Set<string>) => {
+    for (const p of protocols) if (p.startsWith("buddy.")) return p;
+    return false;
+  },
+  verifyClient: ({ req }: { req: any }, done: (ok: boolean, code?: number, msg?: string) => void) => {
+    const from = req.socket?.remoteAddress ?? "unknown";
+    if (auth.blocked(from)) {
+      console.warn(`Refusing ${from} for another ${auth.waitSeconds(from)}s: too many wrong codes`);
+      return done(false, 429, "too many attempts");
+    }
+    const offered = String(req.headers["sec-websocket-protocol"] ?? "")
+      .split(",").map((x: string) => x.trim()).find((x: string) => x.startsWith("buddy."));
+    if (auth.check(offered?.slice("buddy.".length))) {
+      auth.passed(from);
+      return done(true);
+    }
+    auth.failed(from);
+    console.warn(`Refused a connection from ${from}: wrong or missing access code`);
+    done(false, 401, "wrong access code");
+  },
+});
 
 wss.on("connection", (ws: WebSocket) => {
   sockets.add(ws);
-  const send = (m: object) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
+  const send = (m: Record<string, any>) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
   send({ type: "stt", state: sttState });
+  send({ type: "central", identity: CENTRAL, name: CENTRAL_NAME });
 
   let mode: Mode = "visual";
-  let agent: ClaudeSession | null = null;
+  let call: Call | null = null;
   let segmentId: string | null = null;
-  // per-turn speech state
-  const parsers = new Map<number, ReplyParser>();
-  const parserFor = (turn: number) => parsers.get(turn) ?? parsers.set(turn, new ReplyParser()).get(turn)!;
-  let lastSpokeAt = 0;
-  let filler: ReturnType<typeof setTimeout> | undefined;
-  // reply events go out strictly in order, even though cleaning is async
-  let chain: Promise<unknown> = Promise.resolve();
-  const inOrder = (fn: () => Promise<unknown> | void) => (chain = chain.then(fn).catch((e) => console.error(e)));
 
-  const say = async (turn: number, text: string) => {
-    const s = clean(await rewriter.toSpeech(text), mode);
-    if (!s) return;
-    lastSpokeAt = Date.now();
-    clearTimeout(filler);
-    send({ type: "say", turn, text: s });
+  const endCall = () => {
+    const c = call;
+    call = null;
+    c?.close().catch((e) => console.error(e));
   };
-
-  const handleParsed = async (turn: number, events: ParsedEvent[]) => {
-    for (const e of events) {
-      if (e.kind === "sentence") await say(turn, e.text);
-      else if (e.kind === "screen") send({ type: "screen", turn, text: e.text });
-      else if (e.kind === "aside") send({ type: "aside", turn, text: e.text });
-      else {
-        // no <say> at all: speak the opening of the reply and put the whole thing on screen
-        const parts = clean(e.text, mode).match(/[^.!?]+[.!?]*/g) ?? [];
-        for (const s of parts.slice(0, 2)) await say(turn, s.trim());
-        if (parts.length > 2) send({ type: "screen", turn, text: e.text });
-      }
-    }
-  };
-
-  function ensureAgent() {
-    if (agent) return agent;
-    const a = new ClaudeSession({ cwd: workDir, systemPrompt, permissionMode: process.env.BUDDY_PERMISSION_MODE ?? "auto" });
-    a.on((turn, ev) => inOrder(async () => {
-      switch (ev.kind) {
-        case "text": await handleParsed(turn, parserFor(turn).feed(ev.text)); break;
-        case "thinking": send({ type: "thinking", turn, text: ev.text }); break;
-        case "tool": {
-          send({ type: "tool", turn, id: ev.id, label: toolLabel(ev.name, ev.input), detail: toolDetail(ev.name, ev.input) });
-          const n = narrate(ev.name, ev.input);
-          if (n && Date.now() - lastSpokeAt > NARRATE_GAP_MS) { lastSpokeAt = Date.now(); clearTimeout(filler); send({ type: "narrate", turn, text: n }); }
-          break;
-        }
-        case "tool_result": send({ type: "tool_result", turn, id: ev.id, ok: ev.ok, summary: ev.summary, detail: ev.detail }); break;
-        case "error": send({ type: "error", turn, text: `Buddy hit a problem: ${ev.message}` }); break;
-        case "done":
-          clearTimeout(filler);
-          if (!ev.interrupted) await handleParsed(turn, parserFor(turn).end());
-          parsers.delete(turn);
-          send({ type: "done", turn, interrupted: ev.interrupted || undefined });
-          break;
-      }
-    }));
-    a.start(); // warm the process before the first question
-    agent = a;
-    return a;
-  }
-
-  function startTurn(text: string, ctx?: CallContext | null) {
-    const a = ensureAgent();
-    const prompt = `${formatContext(mode, ctx)} ${text}`;
-    const turn = a.send(prompt);
-    lastSpokeAt = 0;
-    clearTimeout(filler);
-    filler = setTimeout(() => { if (!lastSpokeAt) { lastSpokeAt = Date.now(); send({ type: "narrate", turn, text: "One sec." }); } }, FILLER_MS);
-    send({ type: "turn", turn, text });
-  }
 
   ws.on("message", async (raw, isBinary) => {
     if (isBinary) {
@@ -154,14 +143,67 @@ wss.on("connection", (ws: WebSocket) => {
     }
     let m: any;
     try { m = JSON.parse(String(raw)); } catch { return; }
-    if (m.mode === "audio" || m.mode === "visual") mode = m.mode;
-    if (m.type === "call-start") ensureAgent();
-    else if (m.type === "segment") segmentId = String(m.id);
-    else if (m.type === "utterance" && typeof m.text === "string" && m.text.trim()) startTurn(m.text.trim(), m.context);
-    else if (m.type === "interrupt") { clearTimeout(filler); agent?.interrupt(); }
-    else if (m.type === "call-end") { clearTimeout(filler); agent?.close(); agent = null; }
+    if (m.mode === "audio" || m.mode === "visual") { mode = m.mode; call?.setMode(mode); }
+
+    switch (m.type) {
+      case "call-start":
+        if (!call) {
+          call = new Call({ projects, systemPrompt, callsDir, rewriter, send, appRoot: root });
+          call.setMode(mode);
+          await call.start();
+        }
+        break;
+      case "segment":
+        segmentId = String(m.id);
+        break;
+      case "utterance":
+        if (typeof m.text === "string" && m.text.trim()) call?.ask(String(m.project ?? ""), m.text.trim(), m.context);
+        break;
+      case "focus":
+        call?.focus(m.project ? String(m.project) : null);
+        break;
+      case "interrupt":
+        call?.interrupt(m.project ? String(m.project) : undefined);
+        break;
+      case "grant":
+        if (!call?.grant(String(m.project), m.scope === "always" ? "always" : "once")) {
+          send({ type: "error", project: m.project, text: "There is nothing waiting for permission there." });
+        }
+        break;
+      case "park":
+        call?.park(String(m.project));
+        break;
+      case "open":
+        await call?.open(String(m.text ?? ""), { create: !!m.create, resume: m.resume, name: m.name });
+        break;
+      case "answer":
+        await call?.answer(m.choice === "resume" ? "resume" : "new", m.session ? String(m.session) : undefined);
+        break;
+      case "call-end":
+        endCall();
+        break;
+    }
   });
-  ws.on("close", () => { sockets.delete(ws); clearTimeout(filler); agent?.close(); });
+
+  ws.on("close", () => { sockets.delete(ws); endCall(); });
 });
 
-http.listen(PORT, () => console.log(`Buddy is on http://localhost:${PORT} (open in Chrome or Edge) · working in ${workDir}`));
+// Listening on every interface means dual stack: binding 0.0.0.0 alone is IPv4 only, and macOS
+// resolves localhost to ::1 first, so the localhost URL would not answer.
+const listenArgs: any[] = onLan ? [PORT] : [PORT, HOST];
+front.listen(...listenArgs, () => {
+  const scheme = tls ? "https" : "http";
+  console.log(`\nBuddy is on ${scheme}://localhost:${PORT}`);
+  if (onLan) for (const a of localAddresses()) console.log(`           and ${scheme}://${a}:${PORT}  ← from your phone, same network`);
+  console.log(`\n  access code: ${auth.code}${auth.generated ? "  (set BUDDY_TOKEN to choose your own)" : ""}`);
+  console.log("  the code is asked for once per device and is never part of the link");
+  if (tls) console.log(`\n  the certificate is self-signed, so each device shows a warning once.\n  Accept it, or run: brew install mkcert && mkcert -install && mkcert localhost ${localAddresses().join(" ")}`);
+  if (!onLan) console.log("\n  reachable from this machine only. BUDDY_HOST=0.0.0.0 opens it to your network.");
+  if (projects.length) {
+    console.log("\n  projects open at startup:");
+    for (const p of projects) console.log(`  · ${p.name} → ${p.dir} (${p.permissionMode} on the line, ${p.backgroundPermissionMode} in the background)`);
+  } else {
+    console.log(`\n  no projects yet — ask ${CENTRAL_NAME} to open one: "${CENTRAL_NAME}, open <folder>"`);
+  }
+  console.log("");
+});

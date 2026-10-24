@@ -37,7 +37,7 @@
   .who .name { font-size: 22px; font-weight: 600; }
   .who .sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .orb-wrap { position: relative; width: 210px; height: 210px; display: grid; place-items: center; margin: 8px 0; }
-  .orb { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, var(--orb-a), var(--orb-b) 60%, #9c4a31); box-shadow: 0 0 60px var(--glow); transition: transform .12s ease, filter .3s; }
+  .orb { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, hsl(var(--hue, 18) 75% 72%), hsl(var(--hue, 18) 60% 50%) 60%, hsl(var(--hue, 18) 55% 32%)); box-shadow: 0 0 60px hsl(var(--hue, 18) 60% 50% / .38); transition: transform .12s ease, filter .3s, background .4s; }
   .ring { position: absolute; inset: 18px; border-radius: 50%; border: 2px solid var(--orb-b); opacity: 0; }
   [data-state="asleep"] .orb { filter: grayscale(1) brightness(.8); box-shadow: none; }
   [data-state="listening"] .orb { animation: breathe 3.2s ease-in-out infinite; }
@@ -112,6 +112,43 @@
   pre code { background: none; padding: 0; font: inherit; white-space: inherit; }
   .screen code { font-family: var(--mono); background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
   .err { color: var(--danger); font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; font-style: italic; padding: 0 2px; }
+  /* a project's colour follows it everywhere: roster row, orb, turn card, notification */
+  .turn { border-left: 3px solid hsl(var(--hue, 18) 55% 55% / .55); }
+  .turn .who { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: hsl(var(--hue, 18) 45% 45%); font-weight: 700; }
+  .said.quiet { opacity: .62; border-left-style: dashed; }
+  .said.quiet::after { content: " (not spoken aloud)"; color: var(--muted); font-size: 11px; }
+  .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; border: 1px solid hsl(var(--hue, 18) 50% 55% / .5); background: hsl(var(--hue, 18) 60% 55% / .08); border-radius: 10px; padding: 7px 10px; }
+  .notice.permission { border-color: var(--think); background: color-mix(in srgb, var(--think) 12%, transparent); }
+  .notice.failed { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+  .notice .allow { margin-left: auto; font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .notice .allow:hover { background: var(--ink); color: var(--bg); }
+
+  /* roster */
+  #roster { width: min(560px, 100%); display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .proj { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; cursor: pointer; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .proj .dot { width: 9px; height: 9px; border-radius: 50%; background: hsl(var(--hue) 60% 55%); flex: none; }
+  .proj .pname { font-weight: 600; }
+  .proj .pside { color: var(--muted); font-size: 10px; }
+  .proj .pstate, .proj .pbranch { color: var(--muted); font-size: 11px; }
+  .proj .pbranch { font-family: var(--mono); opacity: .7; }
+  .proj.on { border-color: hsl(var(--hue) 55% 50%); box-shadow: 0 0 0 2px hsl(var(--hue) 60% 55% / .22); }
+  .proj[data-state="working"] .dot { animation: breathe 1.4s ease-in-out infinite; }
+  .proj[data-state="blocked"] .dot { background: var(--think); animation: breathe .9s ease-in-out infinite; }
+  .proj[data-state="parked"] { opacity: .5; }
+  .proj[data-state="parked"] .dot { background: var(--muted); }
+  #speakerLine { font-size: 12px; color: var(--muted); min-height: 1.2em; }
+  /* the access gate: shown until the handshake is accepted */
+  #gate { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: var(--bg); padding: 24px; }
+  body.locked #gate { display: grid; }
+  body.locked main, body.locked header { visibility: hidden; }
+  #gate .box { width: min(360px, 100%); text-align: center; display: grid; gap: 12px; }
+  #gate h2 { margin: 0; font-size: 20px; }
+  #gate p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  #gate input { font: inherit; font-family: var(--mono); font-size: 18px; letter-spacing: 3px; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  #gate button { font: inherit; padding: 9px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  #gateMsg { color: var(--think); min-height: 1.2em; font-size: 13px; }
+  #speakerLine b { color: var(--ink); }
   @media (max-width: 760px) {
     main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
     #feedWrap { border-left: none; border-top: 1px solid var(--line); min-height: 50vh; }
@@ -119,19 +156,31 @@
 </style>
 </head>
 <body>
+<div id="gate">
+  <form class="box" id="codeForm" autocomplete="off">
+    <h2>Buddy</h2>
+    <p>Buddy can edit files and run commands on the machine it is running on, so it asks for a code. It is printed in the terminal that started it, and this device will remember it. After ten wrong tries you will have to wait a little before trying again.</p>
+    <input id="codeBox" inputmode="latin" autocapitalize="off" spellcheck="false" placeholder="access code" aria-label="Access code">
+    <button type="submit">Connect</button>
+    <div id="gateMsg"></div>
+  </form>
+</div>
 <header>
   <h1>Buddy</h1>
   <span id="ears" class="pill">ears loading…</span>
   <span class="spacer"></span>
   <label class="toggle" title="Instant barge-in. Turn on when Buddy's voice cannot reach your mic."><input type="checkbox" id="phones"> headphones</label>
+  <label class="toggle" title="A short tone from each project's own side before it speaks."><input type="checkbox" id="earcons" checked> earcons</label>
   <label class="toggle"><input type="checkbox" id="audioOnly"> audio-only</label>
   <label class="toggle">sleep after <input id="sleep" type="number" min="2" max="60"> min</label>
 </header>
 <main>
   <section id="call" data-state="asleep">
     <div class="who"><div class="name">Buddy</div><div class="sub" id="timer">not connected</div></div>
+    <div id="roster"></div>
     <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
     <div id="stateLabel">asleep</div>
+    <div id="speakerLine">on the line: <b id="onLine">Buddy</b> · speaking: <span id="speaker">—</span></div>
     <div id="paused">Paused at “<span id="pausedAt"></span>”. Say <b>go on</b> to continue, or just ask something else.</div>
     <div class="captions">
       <div class="cap you"><div class="lbl">You</div><div class="txt" id="capYou">—</div></div>
@@ -141,9 +190,10 @@
       <button class="btn" id="muteBtn" title="Mute mic" disabled>🎙️</button>
       <button class="btn call" id="callBtn" title="Start call">📞</button>
       <button class="btn" id="pauseBtn" title="Pause Buddy" disabled>⏸</button>
+      <button class="btn" id="statusBtn" title="Roll call: how every project is doing">☰</button>
     </div>
     <form id="typeForm" autocomplete="off"><input id="typeBox" placeholder="…or type to Buddy" disabled></form>
-    <div class="hint">Just talk, like a call. Say <b>pause</b> to hold Buddy, <b>go on</b> to continue, or talk over it to change direction. Also: stop, repeat, shorter, go to sleep.</div>
+    <div class="hint">Just talk, like a call. Say a project's <b>name</b> to put it on the line (“Ada, run the tests”), or <b>status</b> for a roll call. Only the project on the line speaks; the others report through Buddy. Say <b>allow Ada</b> to grant a permission, <b>park Ada</b> to put one away. Also: pause, go on, stop, stop everyone, repeat, shorter, go to sleep. Keys 1–9 switch projects.</div>
   </section>
   <section id="feedWrap">
     <h2><span>Behind the scenes</span><span id="feedState"></span></h2>

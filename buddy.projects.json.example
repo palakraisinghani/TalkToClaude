@@ -1,0 +1,16 @@
+{
+  "projects": [
+    {
+      "name": "Ada",
+      "dir": "~/code/api",
+      "permissionMode": "auto",
+      "backgroundPermissionMode": "manual",
+      "engagement": "pair"
+    },
+    {
+      "name": "Rex",
+      "dir": "~/code/web",
+      "engagement": "delegate"
+    }
+  ]
+}

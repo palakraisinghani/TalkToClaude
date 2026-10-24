@@ -20,8 +20,8 @@ const quote = (s: string, max = 160) => {
 };
 
 /** Short bracketed note prepended to the user's words so Claude knows where the call stands. */
-export function formatContext(mode: Mode, ctx?: CallContext | null): string {
-  const parts = [`[call · ${mode === "audio" ? "audio-only" : "visual+audio"}]`];
+export function formatContext(mode: Mode, ctx?: CallContext | null, onTheLine = true): string {
+  const parts = [`[call · ${mode === "audio" ? "audio-only" : "visual+audio"} · ${onTheLine ? "you are on the line" : "you are in the background, your words are not spoken"}]`];
   if (ctx) {
     const bits: string[] = [];
     if (ctx.kind === "paused") {

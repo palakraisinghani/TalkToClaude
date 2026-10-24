@@ -1,6 +1,9 @@
 import { Voice } from "./voice.js";
+import { Earcons } from "./earcon.js";
+import { Central } from "./central.js";
 import { createVadListener, createChromeListener } from "./listen.js";
 import { esc, renderMarkdown } from "./markdown.js";
+import { route, LOCAL } from "./route.js";
 
 const $ = (id) => document.getElementById(id);
 const callEl = $("call"), orb = $("orb"), feed = $("feed");
@@ -9,31 +12,48 @@ const callEl = $("call"), orb = $("orb"), feed = $("feed");
 let ws = null;
 let onCall = false, muted = false;
 let listener = null;
+let projects = []; // the roster, as the server reports it
+let focusedId = null;
+let centralIdentity = null;
 let currentTurn = 0; // the turn whose output we play
-let working = false; // Claude is busy on currentTurn
+let working = false; // the project on the line is busy on currentTurn
 let userPaused = false, pausedAt = 0;
 let ducked = false; // voice held because the user started talking
 let hearing = false;
 let callStart = 0, lastActivity = 0, sleepTimer = null;
 let segSeq = 0;
-let voiceIdleAt = 0;
 let audioCtx = null;
 // Speculative sending: each utterance goes to Claude the moment it is transcribed. If you keep
 // talking within MERGE_MS and Buddy has not said anything yet, that turn is quietly replaced by
 // one with your whole sentence, so a mid-sentence pause never cuts you off.
 const MERGE_MS = 1500;
+// Saying the same thing twice this close together overrides the echo guard.
+const INSIST_MS = 12_000;
+// An update from a background project waits this long after you stop talking, so it does not
+// collide with you carrying on your own thought.
+const RELAY_SETTLE_MS = 1200;
 let lastAsk = null; // { text, at }
 let spokeThisTurn = false;
 let continuing = false;
 let carry = ""; // transcript that arrived while you were already talking again; joined to what comes next
 const dropped = new Set(); // turns replaced by a merged one; their late output is ignored
+const notices = []; // notifications waiting for a gap in the conversation
+let relayTimer = null;
 const mode = () => ($("audioOnly").checked ? "audio" : "visual");
+const project = (id) => projects.find((p) => p.id === id) ?? null;
+const focused = () => project(focusedId);
+const waitingId = () => projects.find((p) => p.waiting)?.id ?? null;
+const identityOf = (id) => project(id)?.identity ?? null;
 
+const earcons = new Earcons(null);
 const voice = new Voice({
+  earcons,
   onSentence: (text, from, record) => { if (record) { spokeThisTurn = true; showBuddy(text, from, from); } render(); },
   onWord: (text, at, len) => { showBuddy(text, at, at + Math.max(len, 1)); orb.classList.add("beat"); setTimeout(() => orb.classList.remove("beat"), 110); },
-  onIdle: () => { voiceIdleAt = Date.now(); render(); },
+  onSpeaker: (speaker) => { $("speaker").textContent = speaker === "buddy" ? "Buddy" : project(speaker)?.name ?? ""; render(); },
+  onIdle: () => { render(); drainNotices(); },
 });
+const central = new Central({ voice, identity: null });
 
 // ---------- view ----------
 function render() {
@@ -50,7 +70,33 @@ function render() {
   $("pauseBtn").textContent = userPaused ? "▶" : "⏸";
   $("pauseBtn").title = userPaused ? "Go on" : "Pause Buddy";
   $("feedState").innerHTML = working ? '<span class="spin"></span> working' : "";
+  const f = focused();
+  callEl.style.setProperty("--hue", String(f?.identity?.hue ?? centralIdentity?.hue ?? 18));
+  $("onLine").textContent = f ? f.name : "Buddy";
+  renderRoster();
 }
+
+function renderRoster() {
+  const el = $("roster");
+  el.innerHTML = "";
+  for (const p of projects) {
+    const row = document.createElement("button");
+    row.className = "proj";
+    row.dataset.state = p.state;
+    if (p.id === focusedId) row.classList.add("on");
+    row.style.setProperty("--hue", String(p.identity?.hue ?? 0));
+    row.title = `${p.dir}${p.branch ? ` · ${p.branch}` : ""} · ${p.permissionMode}`;
+    const side = (p.identity?.pan ?? 0) < -0.15 ? "◀" : (p.identity?.pan ?? 0) > 0.15 ? "▶" : "◆";
+    row.innerHTML =
+      `<span class="dot"></span><span class="pname">${esc(p.name)}</span>` +
+      `<span class="pside">${side}</span>` +
+      `<span class="pstate">${p.waiting ? "needs you" : p.state === "working" ? "working" : p.state}</span>` +
+      (p.branch ? `<span class="pbranch">${esc(p.branch)}</span>` : "");
+    row.onclick = () => { send({ type: "focus", project: p.id }); };
+    el.appendChild(row);
+  }
+}
+
 function showBuddy(text, a, b) {
   $("capBuddy").innerHTML = `<span class="done">${esc(text.slice(0, a))}</span><span class="now">${esc(text.slice(a, b))}</span><span class="todo">${esc(text.slice(b))}</span>`;
 }
@@ -59,16 +105,20 @@ function showYou(text, pending) {
 }
 
 // ---------- behind-the-scenes feed ----------
-const cards = new Map();
-function card(turn) {
-  let c = cards.get(turn);
+const cards = new Map(); // key: `${project}:${turn}`
+const key = (pid, turn) => `${pid}:${turn}`;
+function card(pid, turn) {
+  const k = key(pid, turn);
+  let c = cards.get(k);
   if (c) return c;
+  const p = project(pid);
   const el = document.createElement("div");
   el.className = "turn";
-  el.innerHTML = `<div class="q"><span class="qt"></span><span class="st"><span class="spin"></span></span></div>`;
+  if (p?.identity) el.style.setProperty("--hue", String(p.identity.hue));
+  el.innerHTML = `<div class="q"><span class="who">${esc(p?.name ?? "Buddy")}</span><span class="qt"></span><span class="st"><span class="spin"></span></span></div>`;
   if (!dropped.has(turn)) feed.appendChild(el);
-  c = { el, think: null, aside: null, said: null, screen: null, screenMd: "", tools: new Map(), last: null };
-  cards.set(turn, c);
+  c = { el, last: null, screen: null, screenMd: "", tools: new Map() };
+  cards.set(k, c);
   return c;
 }
 function block(c, kind, make) {
@@ -80,22 +130,22 @@ function block(c, kind, make) {
   return node;
 }
 const scrollFeed = () => { if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 160) feed.scrollTop = feed.scrollHeight; };
-function feedThinking(turn, text) {
-  const c = card(turn);
+function feedThinking(pid, turn, text) {
+  const c = card(pid, turn);
   const d = block(c, "think", () => { const d = document.createElement("details"); d.className = "think"; d.open = true; d.innerHTML = "<summary>thinking</summary><div></div>"; return d; });
   d.lastChild.textContent += text;
   d.lastChild.scrollTop = d.lastChild.scrollHeight;
   scrollFeed();
 }
-function feedAside(turn, text) {
-  if (!text.trim() && cards.get(turn)?.last?.kind !== "aside") return;
-  const c = card(turn);
+function feedAside(pid, turn, text) {
+  if (!text.trim() && cards.get(key(pid, turn))?.last?.kind !== "aside") return;
+  const c = card(pid, turn);
   const n = block(c, "aside", () => Object.assign(document.createElement("div"), { className: "aside" }));
   n.textContent = (n.textContent + text).replace(/^\n+/, "");
   scrollFeed();
 }
-function feedTool(turn, id, label, detail) {
-  const c = card(turn);
+function feedTool(pid, turn, id, label, detail) {
+  const c = card(pid, turn);
   const n = document.createElement("details");
   n.className = "tool";
   n.innerHTML = `<summary><span class="mark"><span class="spin"></span></span><span class="lbl">${esc(label)}</span><span class="res"></span></summary>`;
@@ -105,58 +155,171 @@ function feedTool(turn, id, label, detail) {
   c.tools.set(id, n);
   scrollFeed();
 }
-function feedToolResult(turn, id, ok, summary, detail) {
-  const n = card(turn).tools.get(id);
+function feedToolResult(pid, turn, id, ok, summary, detail) {
+  const n = cards.get(key(pid, turn))?.tools.get(id);
   if (!n) return;
   n.classList.add(ok ? "ok" : "bad");
   n.querySelector(".mark").textContent = ok ? "✓" : "✕";
   n.querySelector(".res").textContent = summary;
   if (detail) n.appendChild(Object.assign(document.createElement("pre"), { className: "io out", textContent: detail }));
 }
-function feedSaid(turn, text) {
-  const c = card(turn);
+function feedSaid(pid, turn, text, spoken) {
+  const c = card(pid, turn);
   const n = block(c, "said", () => Object.assign(document.createElement("div"), { className: "said" }));
+  if (!spoken) n.classList.add("quiet");
   n.textContent += (n.textContent ? " " : "") + text;
   scrollFeed();
 }
-function feedScreen(turn, text) {
-  const c = card(turn);
+function feedScreen(pid, turn, text) {
+  const c = card(pid, turn);
   if (!c.screen) { c.screen = Object.assign(document.createElement("div"), { className: "screen" }); c.el.appendChild(c.screen); }
   c.screenMd += text;
   c.screen.innerHTML = renderMarkdown(c.screenMd.replace(/^\n+|\s+$/g, ""));
   scrollFeed();
 }
-function feedError(turn, text) {
-  const c = card(turn > 0 ? turn : 0);
-  if (!turn || turn < 0) c.el.querySelector(".qt").textContent = "Note";
+function feedError(pid, turn, text) {
+  const c = card(pid, turn);
+  if (!turn) c.el.querySelector(".qt").textContent = "Note";
   c.el.appendChild(Object.assign(document.createElement("div"), { className: "err", textContent: text }));
+  scrollFeed();
 }
-function finishCard(turn, interrupted) {
-  const c = cards.get(turn);
+function feedNote(text) {
+  feed.appendChild(Object.assign(document.createElement("div"), { className: "note", textContent: text }));
+  scrollFeed();
+}
+function feedNotice(n) {
+  const el = Object.assign(document.createElement("div"), { className: `notice ${n.kind}` });
+  const p = project(n.project);
+  if (p?.identity) el.style.setProperty("--hue", String(p.identity.hue));
+  el.innerHTML = `<b>${esc(n.name)}</b> ${esc(n.text)}`;
+  if (n.kind === "permission") {
+    const yes = Object.assign(document.createElement("button"), { className: "allow", textContent: `Allow ${n.name}` });
+    yes.onclick = () => send({ type: "grant", project: n.project });
+    el.appendChild(yes);
+  }
+  feed.appendChild(el);
+  scrollFeed();
+}
+function finishCard(pid, turn, interrupted) {
+  const c = cards.get(key(pid, turn));
   if (!c) return;
   c.el.querySelector(".st").textContent = interrupted ? "cut in" : "done";
   if (interrupted) c.el.classList.add("stale");
   c.el.querySelectorAll("details.think").forEach((d) => (d.open = false));
 }
 
+// ---------- notifications ----------
+/**
+ * Hold updates from projects you are not listening to until there is a gap: never while you are
+ * talking, never while the project on the line is mid-sentence, and not for a moment after you
+ * stop, which is when you are most likely to carry on.
+ */
+function queueNotice(n) {
+  notices.push(n);
+  feedNotice(n);
+  scheduleDrain();
+}
+function scheduleDrain() {
+  clearTimeout(relayTimer);
+  if (!notices.length) return;
+  relayTimer = setTimeout(drainNotices, RELAY_SETTLE_MS);
+}
+function drainNotices() {
+  if (!notices.length || !onCall) return;
+  if (hearing || userPaused || !voice.idle || Date.now() - lastActivity < RELAY_SETTLE_MS) return scheduleDrain();
+  const items = notices.splice(0, notices.length);
+  central.relay(items.length === 1 ? `${items[0].text}` : batchLine(items));
+  render();
+}
+function batchLine(items) {
+  const rank = { permission: 0, failed: 1, finished: 2 };
+  const sorted = [...items].sort((a, b) => rank[a.kind] - rank[b.kind] || a.at - b.at);
+  const head = sorted.slice(0, 2).map((n) => n.text.replace(/\.$/, ""));
+  const rest = sorted.length - 2;
+  return `${sorted.length} updates. ${head.join(". And ")}.${rest > 0 ? ` And ${rest} more on screen.` : ""}`;
+}
+
 // ---------- server connection ----------
 const pendingSegments = new Map();
-function connect() {
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`);
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => { if (onCall) send({ type: "call-start", mode: mode() }); };
-  ws.onmessage = (e) => onServer(JSON.parse(e.data));
-  ws.onclose = () => { $("ears").textContent = "reconnecting…"; $("ears").className = "pill warn"; setTimeout(connect, 1000); };
+
+// The access code is kept per device and sent as a subprotocol, never in the URL, so a link on
+// its own is useless. A refused handshake closes with 1006 and no reason, so a connection that
+// never opened is treated as a wrong code.
+const CODE_KEY = "buddyCode";
+const readCode = () => { try { return localStorage.getItem(CODE_KEY) || ""; } catch { return ""; } };
+const saveCode = (c) => { try { localStorage.setItem(CODE_KEY, c); } catch {} };
+const forgetCode = () => { try { localStorage.removeItem(CODE_KEY); } catch {} };
+let code = readCode();
+let everOpened = false;
+let retry = 0;
+
+function askForCode(message) {
+  $("gateMsg").textContent = message ?? "";
+  document.body.classList.add("locked");
+  $("codeBox").value = "";
+  $("codeBox").focus();
 }
+
+function connect() {
+  if (!code) return askForCode("Enter the access code shown in the terminal where Buddy is running.");
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`, [`buddy.${code}`]);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => {
+    everOpened = true;
+    retry = 0;
+    document.body.classList.remove("locked");
+    saveCode(code);
+    if (onCall) send({ type: "call-start", mode: mode() });
+  };
+  ws.onmessage = (e) => onServer(JSON.parse(e.data));
+  // a refused handshake reports an error, and only sometimes a close: treat either as the end
+  ws.onerror = () => { if (!everOpened) ws.onclose?.(); };
+  ws.onclose = () => {
+    if (ws.closedHandled) return;
+    ws.closedHandled = true;
+    if (!everOpened) {
+      // the handshake was refused: the code is wrong, or too many tries have been made
+      forgetCode();
+      code = "";
+      return askForCode("That code was not accepted. Check the terminal and try again.");
+    }
+    $("ears").textContent = "reconnecting…";
+    $("ears").className = "pill warn";
+    retry = Math.min(retry + 1, 5);
+    setTimeout(connect, 500 * retry);
+  };
+}
+
+$("codeForm").onsubmit = (e) => {
+  e.preventDefault();
+  const v = $("codeBox").value.trim().toLowerCase();
+  if (!v) return;
+  code = v;
+  everOpened = false;
+  connect();
+};
 const send = (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 
 function onServer(m) {
-  const mine = m.turn === undefined || m.turn === currentTurn;
+  const mine = m.project === undefined || m.project === focusedId;
   switch (m.type) {
     case "stt":
       $("ears").textContent = { loading: "ears loading…", ready: "ears ready", error: "server ears failed" }[m.state];
       $("ears").className = "pill " + (m.state === "ready" ? "ok" : "warn");
       break;
+    case "central":
+      centralIdentity = m.identity;
+      central.setIdentity(m.identity);
+      break;
+    case "roster": {
+      const first = !projects.length;
+      projects = m.projects;
+      const changed = focusedId !== m.focused;
+      focusedId = m.focused;
+      if (first) warnMissingVoices();
+      if (changed && !first && focusedId) central.focused(focused());
+      break;
+    }
     case "transcript": {
       const done = pendingSegments.get(m.id);
       pendingSegments.delete(m.id);
@@ -165,82 +328,161 @@ function onServer(m) {
     }
     case "turn":
       if (dropped.has(m.turn)) break;
-      currentTurn = m.turn;
-      working = true;
-      card(m.turn).el.querySelector(".qt").textContent = m.text;
+      if (m.project === focusedId) { currentTurn = m.turn; working = true; }
+      card(m.project, m.turn).el.querySelector(".qt").textContent = m.text;
       scrollFeed();
       break;
     case "say":
-      if (!mine) return;
-      voice.say(m.text, m.turn);
-      feedSaid(m.turn, m.text);
+      feedSaid(m.project, m.turn, m.text, m.spoken);
+      // only the project on the line has a voice; the rest report through Buddy
+      if (m.spoken && mine && m.turn === currentTurn) voice.say(m.text, m.turn, { identity: identityOf(m.project), speaker: m.project });
       break;
     case "narrate":
-      if (mine && !userPaused) voice.say(m.text, m.turn, { record: false });
+      if (mine && !userPaused) voice.say(m.text, m.turn, { record: false, identity: identityOf(m.project), speaker: m.project });
       break;
-    case "thinking": feedThinking(m.turn, m.text); break;
-    case "aside": feedAside(m.turn, m.text); break;
-    case "tool": feedTool(m.turn, m.id, m.label, m.detail); break;
-    case "tool_result": feedToolResult(m.turn, m.id, m.ok, m.summary, m.detail); break;
-    case "screen": feedScreen(m.turn, m.text); break;
+    case "thinking": feedThinking(m.project, m.turn, m.text); break;
+    case "aside": feedAside(m.project, m.turn, m.text); break;
+    case "tool": feedTool(m.project, m.turn, m.id, m.label, m.detail); break;
+    case "tool_result": feedToolResult(m.project, m.turn, m.id, m.ok, m.summary, m.detail); break;
+    case "screen": feedScreen(m.project, m.turn, m.text); break;
+    case "permission": feedNote(`${project(m.project)?.name ?? m.project}: ${m.text}`); break;
+    case "notify": queueNotice(m); break;
     case "done":
-      finishCard(m.turn, m.interrupted);
+      finishCard(m.project, m.turn, m.interrupted);
       if (mine) working = false;
       break;
     case "error":
-      feedError(m.turn, m.text);
-      if (mine) voice.say("Sorry, I hit a problem. The details are on screen.", m.turn, { record: false });
+      feedError(m.project, m.turn ?? 0, m.text);
+      if (mine) central.say("Sorry, I hit a problem. The details are on screen.");
       break;
   }
   render();
 }
 
+function warnMissingVoices() {
+  const missing = voice.missing(projects.map((p) => p.identity));
+  if (missing.length) feedNote(`${missing.length} of ${projects.length} projects have no matching voice in this browser and will share a fallback. Chrome and Safari on macOS have the full set.`);
+}
+
 // ---------- what you said ----------
 const norm = (t) => t.toLowerCase().replace(/[^\w' ]/g, " ").replace(/\s+/g, " ").trim();
-const PAUSE = /^(pause|pause please|please pause|hold on|hold up|wait|wait a (sec|second|moment|minute)|one sec(ond)?|hang on|just a (sec|second|moment))$/;
-const RESUME = /^(go on|go ahead|continue|resume|carry on|keep going|okay go on|ok go on|yes go on|please continue|unpause)$/;
+let lastIgnored = null; // { t, at } so saying it again gets through
 
 function heardText(raw, { typed = false } = {}) {
   if (!typed && hearing) { carry = `${carry} ${raw}`.trim(); return; } // you are still talking: wait for the rest
   if (!typed && carry) { raw = `${carry} ${raw}`; carry = ""; }
   const text = raw.trim();
   const t = norm(text);
-  // nothing, a breath, or Buddy hearing itself through the speakers
-  const echoWindow = voice.busy || Date.now() - voiceIdleAt < 2500;
-  if (!t || t.length < 2 || (echoWindow && voice.isEcho(text))) {
+  // nothing or a breath
+  if (!t || t.length < 2) {
     if ((ducked || continuing) && !userPaused) voice.resume();
     ducked = continuing = false;
-    showYou(t ? `(ignored: ${text})` : "—");
+    showYou("—");
     render();
     return;
   }
+  // Buddy hearing itself through the speakers. Headphones keep its voice off the mic, so there
+  // is nothing to guard against; a local command is never treated as an echo; and saying the
+  // same thing again within INSIST_MS always gets through, so a wrong call is never a dead end.
+  const guarded = !typed && !$("phones").checked && !LOCAL.some((re) => re.test(t));
+  if (guarded && voice.isEcho(text)) {
+    const insisted = lastIgnored?.t === t && Date.now() - lastIgnored.at < INSIST_MS;
+    if (!insisted) {
+      lastIgnored = { t, at: Date.now() };
+      if ((ducked || continuing) && !userPaused) voice.resume();
+      ducked = continuing = false;
+      showYou(`(heard that as my own echo: ${text}) — say it again and I will take it`);
+      feedNote(`Ignored as an echo: “${text}”. Repeat it to override, or turn on headphones.`);
+      render();
+      return;
+    }
+  }
+  lastIgnored = null;
   lastActivity = Date.now();
   showYou(text);
   ducked = false;
 
   if (continuing) {
     continuing = false;
-    if (!typed && lastAsk && !PAUSE.test(t) && t !== "stop") return ask(`${lastAsk.text} ${text}`, `${lastAsk.text} ${text}`, { merge: true });
+    if (!typed && lastAsk && route(t, projects).kind === "ask") return ask(`${lastAsk.text} ${text}`, `${lastAsk.text} ${text}`, { merge: true });
     if (!userPaused) voice.resume();
   }
-  if (PAUSE.test(t)) return pauseBuddy();
-  if (RESUME.test(t) && (userPaused || voice.busy)) return resumeBuddy();
-  if (t === "stop" || t === "stop it" || t === "stop talking") { voice.clear(); userPaused = false; send({ type: "interrupt" }); render(); return; }
-  if (/^go to sleep$/.test(t)) return endCall("Going to sleep. Press call to wake me.");
-  if (/^(repeat|repeat that|say that again)$/.test(t)) { voice.clear(); userPaused = false; (voice.heard.length ? voice.heard : voice.lastTurnSpoken).slice().forEach((s) => voice.say(s, currentTurn, { record: false })); return; }
-  if (/^switch to audio( only)?( mode)?$/.test(t)) { $("audioOnly").checked = true; applyMode(); voice.say("Audio only. I will keep it all spoken.", currentTurn, { record: false }); return; }
-  if (/^switch to (visual|video|screen)( mode)?$/.test(t)) { $("audioOnly").checked = false; applyMode(); voice.say("Screen is back.", currentTurn, { record: false }); return; }
-  if (t === "shorter") return ask("Give me the shorter version of your last answer.", text);
-  ask(text, text);
+
+  const r = route(text, projects, { waiting: waitingId() });
+  switch (r.kind) {
+    case "local": return local(r.name);
+    case "focus":
+      voice.clear();
+      userPaused = false;
+      send({ type: "focus", project: r.project });
+      return;
+    case "address": return r.text ? ask(r.text, text, { project: r.project }) : send({ type: "focus", project: r.project });
+    case "grant":
+      send({ type: "grant", project: r.project, scope: r.scope });
+      central.granted(project(r.project)?.name ?? "It");
+      return;
+    case "deny":
+      central.denied(project(r.project)?.name ?? "It");
+      return;
+    case "park":
+      send({ type: "park", project: r.project });
+      central.parked(project(r.project)?.name ?? "It");
+      return;
+    default: return ask(r.text, text);
+  }
 }
 
-function ask(prompt, shown, { merge = false } = {}) {
+function local(name) {
+  switch (name) {
+    case "pause": return pauseBuddy();
+    case "resume": if (userPaused || voice.busy) return resumeBuddy(); return;
+    case "stop":
+      voice.clear();
+      userPaused = false;
+      send({ type: "interrupt", project: focusedId });
+      render();
+      return;
+    case "stop-all":
+      voice.clear();
+      userPaused = false;
+      for (const p of projects) send({ type: "interrupt", project: p.id });
+      central.stoppedAll(projects.filter((p) => p.state === "working").map((p) => p.name));
+      render();
+      return;
+    case "sleep": return endCall("Going to sleep. Press call to wake me.");
+    case "status":
+      voice.clear();
+      userPaused = false;
+      central.status(projects, focusedId);
+      return;
+    case "repeat": {
+      voice.clear();
+      userPaused = false;
+      const lines = voice.heard.length ? voice.heard : voice.lastTurnSpoken;
+      for (const s of lines.slice()) voice.say(s, currentTurn, { record: false, identity: identityOf(focusedId) ?? centralIdentity, speaker: focusedId ?? "buddy" });
+      return;
+    }
+    case "audio":
+      $("audioOnly").checked = true;
+      applyMode();
+      central.say("Audio only. I will keep it all spoken.");
+      return;
+    case "visual":
+      $("audioOnly").checked = false;
+      applyMode();
+      central.say("Screen is back.");
+      return;
+    case "shorter": return ask("Give me the shorter version of your last answer.", "shorter");
+  }
+}
+
+function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
   let context = null;
   if (merge && currentTurn > 0) {
     // replace the turn we just sent rather than cutting in on it
     dropped.add(currentTurn);
-    cards.get(currentTurn)?.el.remove();
-    cards.delete(currentTurn);
+    cards.get(key(focusedId, currentTurn))?.el.remove();
+    cards.delete(key(focusedId, currentTurn));
   } else if (voice.busy || working || userPaused) {
     voice.hold();
     const snap = voice.snapshot();
@@ -255,11 +497,11 @@ function ask(prompt, shown, { merge = false } = {}) {
   voice.clear();
   voice.newTurn();
   userPaused = false;
-  if (currentTurn > 0 && !merge) finishCard(currentTurn, working);
+  if (currentTurn > 0 && !merge) finishCard(focusedId, currentTurn, working);
   lastAsk = { text: prompt, at: Date.now() };
   spokeThisTurn = false;
   currentTurn = -1; // ignore the old turn's tail until the server names the new one
-  send({ type: "utterance", text: prompt, context, mode: mode() });
+  send({ type: "utterance", project: pid ?? focusedId, text: prompt, context, mode: mode() });
   showYou(shown);
   render();
 }
@@ -292,7 +534,8 @@ async function startCall() {
   // Safari only allows audio and speech that start inside the click, so do both before any await
   audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
   audioCtx.resume?.();
-  voice.say("Hey, I'm here. What are we working on?", 0, { record: false });
+  earcons.ctx = audioCtx;
+  central.greet(projects);
   try {
     listener ??= await createVadListener({
       audioContext: audioCtx,
@@ -310,11 +553,11 @@ async function startCall() {
     });
   } catch (err) {
     console.warn("VAD unavailable, using browser recognition", err);
-    feedError(0, `Using the browser's speech recognition instead (${err.message}).`);
+    feedNote(`Using the browser's speech recognition instead (${err.message}).`);
     try {
       listener ??= createChromeListener({ onSpeechStart, onText: (t) => { hearing = false; heardText(t); } });
     } catch (e2) {
-      feedError(0, `Buddy cannot hear on this browser: ${e2.message}. You can still type.`);
+      feedError(focusedId, 0, `Buddy cannot hear on this browser: ${e2.message}. You can still type.`);
     }
   }
   if (!muted) startListening();
@@ -327,6 +570,8 @@ function endCall(message) {
   if (!onCall) return;
   onCall = false;
   clearInterval(sleepTimer);
+  clearTimeout(relayTimer);
+  notices.length = 0;
   listener?.pause();
   voice.clear();
   userPaused = false;
@@ -338,7 +583,7 @@ function endCall(message) {
   $("callBtn").title = "Start call";
   for (const id of ["muteBtn", "pauseBtn", "typeBox"]) $(id).disabled = true;
   $("timer").textContent = "call ended";
-  if (message) voice.say(message, 0, { record: false });
+  if (message) central.say(message);
   render();
 }
 
@@ -373,7 +618,9 @@ function tick() {
   $("timer").textContent = `on call · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   // speakers: be stricter while Buddy talks so its own voice does not trigger the mic
   listener?.strict(!$("phones").checked && voice.speaking);
-  if (voice.busy || working) { lastActivity = Math.max(lastActivity, Date.now() - sleepMs() + 30_000); return; }
+  // a project still working, or an update waiting to be read out, keeps the call awake
+  const busy = voice.busy || working || notices.length || projects.some((p) => p.state === "working" || p.waiting);
+  if (busy) { lastActivity = Math.max(lastActivity, Date.now() - sleepMs() + 30_000); return; }
   if (Date.now() - lastActivity > sleepMs()) endCall("Going to sleep. Press call to wake me.");
 }
 
@@ -383,7 +630,7 @@ async function startListening() {
   try {
     await listener?.start();
   } catch (err) {
-    feedError(0, `Buddy cannot open the microphone: ${err.message || err}`);
+    feedError(focusedId, 0, `Buddy cannot open the microphone: ${err.message || err}`);
   }
 }
 $("muteBtn").onclick = () => {
@@ -394,6 +641,7 @@ $("muteBtn").onclick = () => {
   render();
 };
 $("pauseBtn").onclick = () => (userPaused ? resumeBuddy() : pauseBuddy());
+$("statusBtn").onclick = () => local("status");
 $("typeForm").onsubmit = (e) => {
   e.preventDefault();
   const v = $("typeBox").value.trim();
@@ -404,9 +652,14 @@ function applyMode() { document.body.classList.toggle("audio", mode() === "audio
 $("audioOnly").onchange = applyMode;
 try { $("phones").checked = localStorage.getItem("phones") === "1"; } catch {}
 $("phones").onchange = () => { try { localStorage.setItem("phones", $("phones").checked ? "1" : "0"); } catch {} };
+try { earcons.enabled = localStorage.getItem("earcons") !== "0"; $("earcons").checked = earcons.enabled; } catch { $("earcons").checked = true; }
+$("earcons").onchange = () => { earcons.enabled = $("earcons").checked; try { localStorage.setItem("earcons", earcons.enabled ? "1" : "0"); } catch {} };
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
   if (e.code === "Space" && onCall) { e.preventDefault(); userPaused ? resumeBuddy() : pauseBuddy(); }
+  // number keys put a project on the line
+  const n = Number(e.key);
+  if (onCall && n >= 1 && n <= projects.length) send({ type: "focus", project: projects[n - 1].id });
 });
 
 connect();

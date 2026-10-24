@@ -3,7 +3,7 @@ export type AgentEvent =
   | { kind: "thinking"; text: string }
   | { kind: "tool"; id: string; name: string; input: unknown }
   | { kind: "tool_result"; id: string; ok: boolean; summary: string; detail: string }
-  | { kind: "permission"; name: string; input: unknown }
+  | { kind: "permission"; tool: string; toolUseId: string; message: string }
   | { kind: "done"; sessionId: string; interrupted: boolean }
   | { kind: "error"; message: string };
 
@@ -13,6 +13,8 @@ export interface Agent {
   /** Queue a user message; returns its turn number. Interrupts the running turn first. */
   send(text: string): number;
   interrupt(): void;
+  /** Raise or lower what this session may do, without losing its context. */
+  setPermissionMode(mode: string): void;
   close(): void;
   on(listener: (turn: number, event: AgentEvent) => void): void;
 }

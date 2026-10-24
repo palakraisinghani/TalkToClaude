@@ -1,0 +1,115 @@
+// Deciding who a spoken line is for.
+//
+// Only one project is on the line at a time, so everything you say goes either to the central
+// voice (Buddy) or to that one project. A line addressed to another project by name moves the
+// line to them and takes the rest as the question: "Ada, run the tests".
+//
+// Names are matched EXACTLY when they carry a command, and only loosely when the whole line is
+// just a name. A misheard name must never redirect an instruction: falling through to whoever
+// is already on the line is the safe failure, because that is who you were talking to.
+
+const norm = (t) => t.toLowerCase().replace(/[^\w' ]/g, " ").replace(/\s+/g, " ").trim();
+
+export const PAUSE = /^(pause|pause please|please pause|hold on|hold up|wait|wait a (sec|second|moment|minute)|one sec(ond)?|hang on|just a (sec|second|moment))$/;
+export const RESUME = /^(go on|go ahead|continue|resume|carry on|keep going|okay go on|ok go on|yes go on|please continue|unpause)$/;
+export const STOP = /^(stop|stop it|stop talking)$/;
+export const SLEEP = /^go to sleep$/;
+export const REPEAT = /^(repeat|repeat that|say that again)$/;
+export const AUDIO = /^switch to audio( only)?( mode)?$/;
+export const VISUAL = /^switch to (visual|video|screen)( mode)?$/;
+export const SHORTER = /^shorter$/;
+const STATUS = /^(status|status report|roll call|everyone|where are we|what'?s? (the )?status|how is everyone|sitrep)$/;
+const STOP_ALL = /^(stop everyone|stop everything|everyone stop|stop all)$/;
+
+/** Patterns handled entirely on the page. Matched before the echo guard, so they never vanish. */
+export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL];
+
+const LOCAL_KINDS = [
+  [PAUSE, "pause"], [RESUME, "resume"], [STOP, "stop"], [SLEEP, "sleep"],
+  [REPEAT, "repeat"], [AUDIO, "audio"], [VISUAL, "visual"], [SHORTER, "shorter"],
+  [STATUS, "status"], [STOP_ALL, "stop-all"],
+];
+
+/** One edit apart, for a bare name said on its own where a wrong guess costs nothing. */
+function near(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.max(a.length, b.length) < 4) return false;
+  let i = 0, j = 0, slips = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++slips > 1) return false;
+    if (a.length > b.length) i++;
+    else if (a.length < b.length) j++;
+    else { i++; j++; }
+  }
+  return slips + (a.length - i) + (b.length - j) <= 1;
+}
+
+const findExact = (projects, word) => projects.find((p) => norm(p.name) === word) ?? null;
+/** A loose match is only trusted when exactly one project answers to it. */
+function findNear(projects, word) {
+  const hits = projects.filter((p) => near(norm(p.name), word));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
+ * What to do with something the person said.
+ *
+ * - `local`    a page command, with `name` saying which
+ * - `focus`    put a project on the line and say nothing else
+ * - `address`  a project by name plus a question for it
+ * - `grant` / `deny` / `park`  acting on a named project, or the one that is waiting
+ * - `ask`      send to whoever is on the line
+ */
+export function route(raw, projects, { waiting = null } = {}) {
+  const t = norm(raw);
+  if (!t) return { kind: "ask", text: "" };
+
+  for (const [re, name] of LOCAL_KINDS) if (re.test(t)) return { kind: "local", name };
+
+  const words = t.split(" ");
+
+  // "allow ada" / "allow it" / "allow ada always" — never "go ahead", which resumes the voice
+  const permit = /^(allow|grant|approve|permit|let)( it| that| them)?$/.exec(words.slice(0, 2).join(" ")) || /^(allow|grant|approve|permit|let)$/.exec(words[0] ?? "");
+  if (permit) {
+    const rest = t.slice(permit[0].length).trim().split(" ").filter(Boolean);
+    const named = rest.length ? findExact(projects, rest[0]) : null;
+    const scope = /\b(always|from now on|every time)\b/.test(t) ? "always" : "once";
+    const target = named ?? (waiting ? projects.find((p) => p.id === waiting) : null);
+    if (target) return { kind: "grant", project: target.id, scope };
+  }
+  if (/^(deny|refuse|reject|don't allow|do not allow)\b/.test(t) || /^no don'?t\b/.test(t)) {
+    const rest = words.slice(1);
+    const named = rest.length ? findExact(projects, rest[0]) : null;
+    const target = named ?? (waiting ? projects.find((p) => p.id === waiting) : null);
+    if (target) return { kind: "deny", project: target.id };
+  }
+
+  const park = /^(park|pause|shelve|put away|let go of) (\w+)$/.exec(t);
+  if (park) {
+    const target = findExact(projects, park[2]);
+    if (target) return { kind: "park", project: target.id };
+  }
+
+  // "switch to ada" / "talk to ada" / "put ada on"
+  const switchTo = /^(switch to|talk to|go to|bring up|put on|put)\s+(\w+)(\s+on)?$/.exec(t);
+  if (switchTo) {
+    const target = findExact(projects, switchTo[2]) ?? findNear(projects, switchTo[2]);
+    if (target) return { kind: "focus", project: target.id };
+  }
+
+  // the whole line is just a name: a loose match is fine, nothing is lost by guessing wrong
+  if (words.length === 1) {
+    const target = findExact(projects, words[0]) ?? findNear(projects, words[0]);
+    if (target) return { kind: "focus", project: target.id };
+  }
+
+  // "ada, run the tests" — only an exact name redirects an instruction
+  const named = findExact(projects, words[0]);
+  if (named && words.length > 1) {
+    const rest = raw.trim().replace(/^[^\s,]+\s*,?\s*/, "");
+    return { kind: "address", project: named.id, text: rest || "" };
+  }
+
+  return { kind: "ask", text: raw.trim() };
+}

@@ -1,3 +1,6 @@
 node_modules/
 session/
+calls/
+certs/
+buddy.projects.json
 .DS_Store
