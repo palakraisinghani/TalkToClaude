@@ -15,8 +15,14 @@ function inline(s) {
   return t.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${spans[i]}</code>`);
 }
 
-const isTableRow = (l) => /^\s*\|.*\|\s*$/.test(l);
-const isRule = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+// Written without nested repeats on purpose: a single regex for a table rule backtracks
+// catastrophically on a long line of pipes and dashes, which froze the page for most of a minute.
+const isTableRow = (l) => { const t = l.trim(); return t.length > 1 && t[0] === "|" && t[t.length - 1] === "|"; };
+const RULE_CELL = /^\s*:?-{2,}:?\s*$/;
+const isRule = (l) => {
+  const t = l.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return t.length > 0 && t.split("|").every((c) => RULE_CELL.test(c));
+};
 const cells = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
 
 export function renderMarkdown(src) {

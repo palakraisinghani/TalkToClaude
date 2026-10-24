@@ -1,7 +1,7 @@
 {
   "projects": [
     {
-      "name": "Ada",
+      "name": "Juno",
       "dir": "~/code/api",
       "permissionMode": "auto",
       "backgroundPermissionMode": "manual",

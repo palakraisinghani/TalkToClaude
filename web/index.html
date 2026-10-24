@@ -3,77 +3,180 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Buddy</title>
+<title>Buddy · team call</title>
 <style>
   :root {
     --bg: #f6f4ee; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6d67; --line: #e5e1d6;
     --accent: #d97757; --listen: #3d7be0; --think: #c99a2e; --speak: #2f9e6a; --danger: #d64545;
-    --orb-a: #f1a184; --orb-b: #d97757; --glow: rgba(217,119,87,.35);
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-    --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e; --glow: rgba(217,119,87,.45);
+    --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e;
   } }
-  :root[data-theme="dark"] { --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e; --glow: rgba(217,119,87,.45); }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  button { font: inherit; }
+  header { display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
+  header h1 small { font-weight: 500; color: var(--muted); font-size: 13px; margin-left: 6px; }
   .pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
   .pill.ok { color: var(--speak); border-color: color-mix(in srgb, var(--speak) 40%, transparent); }
   .pill.warn { color: var(--think); }
   .spacer { flex: 1; }
   .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
   .toggle input { accent-color: var(--accent); }
-  header input[type=number] { width: 3.4em; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
-  main { flex: 1; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.15fr); min-height: 0; }
-  body.audio main { grid-template-columns: 1fr; }
+  header select, header input[type=number] { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; font: inherit; font-size: 12px; }
+  header input[type=number] { width: 3.4em; }
+
+  main { flex: 1; display: grid; grid-template-columns: 300px minmax(420px, 1fr) minmax(320px, .9fr); min-height: 0; }
+  body.audio main { grid-template-columns: 300px 1fr; }
   body.audio #feedWrap { display: none; }
 
-  /* call column */
-  #call { min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 24px 20px; gap: 14px; min-height: 0; overflow: auto; }
-  .who { text-align: center; }
-  .who .name { font-size: 22px; font-weight: 600; }
-  .who .sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-  .orb-wrap { position: relative; width: 210px; height: 210px; display: grid; place-items: center; margin: 8px 0; }
-  .orb { width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, hsl(var(--hue, 18) 75% 72%), hsl(var(--hue, 18) 60% 50%) 60%, hsl(var(--hue, 18) 55% 32%)); box-shadow: 0 0 60px hsl(var(--hue, 18) 60% 50% / .38); transition: transform .12s ease, filter .3s, background .4s; }
-  .ring { position: absolute; inset: 18px; border-radius: 50%; border: 2px solid var(--orb-b); opacity: 0; }
-  [data-state="asleep"] .orb { filter: grayscale(1) brightness(.8); box-shadow: none; }
+  /* ---------- the head of the team, and the hands raised to her ---------- */
+  #head { min-width: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: color-mix(in srgb, var(--card) 40%, var(--bg)); }
+  .sec { margin: 0; padding: 12px 14px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .sec .count { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .headcard { margin: 4px 10px 0; padding: 12px; border-radius: 14px; background: var(--card); border: 1.5px solid hsl(var(--hue) 55% 55% / .55); display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; cursor: pointer; position: relative; }
+  .headcard.on { box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .22); }
+  .headcard .role { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: hsl(var(--hue) 45% 45%); font-weight: 700; }
+  .headcard .nm { font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .headcard .sub { font-size: 12px; color: var(--muted); }
+  .headcard .listening { display: flex; gap: 3px; align-items: flex-end; height: 12px; margin-top: 4px; }
+  .headcard .listening i { width: 3px; background: hsl(var(--hue) 55% 55%); border-radius: 2px; animation: eq 1.1s ease-in-out infinite; }
+  .headcard .listening i:nth-child(2) { animation-delay: .15s; } .headcard .listening i:nth-child(3) { animation-delay: .3s; } .headcard .listening i:nth-child(4) { animation-delay: .45s; }
+  body:not(.oncall) .headcard .listening i { animation: none; height: 3px; opacity: .4; }
+  @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+  .crown { position: absolute; top: -9px; left: 26px; font-size: 15px; }
+
+  .hands { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 16px; }
+  .hand { border-radius: 12px; border: 1px solid hsl(var(--hue, 18) 50% 55% / .55); background: var(--card); padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; animation: slidein .25s ease-out; }
+  .hand.permission { border-color: var(--think); box-shadow: inset 3px 0 0 var(--think); }
+  .hand.question { box-shadow: inset 3px 0 0 hsl(var(--hue) 55% 55%); }
+  .hand.blocked, .hand.failed { box-shadow: inset 3px 0 0 var(--danger); }
+  .hand.finished { box-shadow: inset 3px 0 0 var(--speak); }
+  .hand.told { opacity: .85; }
+  .hand .hh { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .hand .hh .mini { width: 20px; height: 20px; font-size: 10px; }
+  .hand .hh b { font-weight: 650; }
+  .hand .hh .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .hand .hh .age { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .hand .what { font-size: 14px; }
+  .hand pre { margin: 0; font-size: 11.5px; max-height: 90px; padding: 6px 8px; }
+  .hand .why { font-size: 12px; color: var(--muted); }
+  .hand .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .hand .acts button { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .hand .acts button.yes { background: var(--speak); border-color: var(--speak); color: white; }
+  .hand .acts button.no { color: var(--danger); }
+  .hand .acts button:hover { filter: brightness(.95); }
+  .hand form { display: flex; gap: 6px; width: 100%; }
+  .hand form input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .empty { color: var(--muted); font-size: 12px; padding: 6px 4px; line-height: 1.5; }
+  @keyframes slidein { from { transform: translateY(-6px); opacity: 0; } }
+
+  /* ---------- the meeting room: whoever has the floor, and the table ---------- */
+  #room { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 18px 20px 14px; gap: 14px; align-items: center; }
+  .stage { width: min(640px, 100%); border-radius: 22px; padding: 18px 20px 16px; background: radial-gradient(120% 90% at 50% 0%, hsl(var(--hue) 70% 60% / .16), transparent 70%), var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; transition: background .5s; }
+  .stage .floor { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .stage .who { display: flex; align-items: baseline; gap: 10px; }
+  .stage .who .nm { font-size: 24px; font-weight: 700; }
+  .stage .who .rl { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .orb-wrap { position: relative; width: 170px; height: 170px; display: grid; place-items: center; margin: 2px 0; }
+  .orb { width: 124px; height: 124px; border-radius: 50%; display: grid; place-items: center; color: white; font-size: 44px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.2); background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 75% 72%), hsl(var(--hue) 60% 50%) 60%, hsl(var(--hue) 55% 32%)); box-shadow: 0 0 60px hsl(var(--hue) 60% 50% / .38); transition: transform .12s ease, filter .3s, background .4s; }
+  .ring { position: absolute; inset: 14px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 50%); opacity: 0; }
+  [data-state="asleep"] .orb { filter: grayscale(1) brightness(.85); box-shadow: none; }
   [data-state="listening"] .orb { animation: breathe 3.2s ease-in-out infinite; }
-  [data-state="hearing"] .orb { --orb-a: #8fb4f5; --orb-b: var(--listen); --glow: rgba(61,123,224,.45); transform: scale(calc(1 + var(--level, 0) * .14)); }
+  [data-state="hearing"] .orb { transform: scale(calc(1 + var(--level, 0) * .14)); }
   [data-state="hearing"] .ring { border-color: var(--listen); animation: ripple 1.2s ease-out infinite; }
-  [data-state="thinking"] .orb { --orb-a: #f0cf7e; --orb-b: var(--think); --glow: rgba(201,154,46,.4); animation: swirl 2.4s linear infinite; }
-  [data-state="speaking"] .orb { --orb-a: #8ee0b6; --orb-b: var(--speak); --glow: rgba(47,158,106,.45); }
+  [data-state="thinking"] .ring { border-color: var(--think); border-style: dashed; opacity: .9; animation: spin 6s linear infinite; }
   [data-state="speaking"] .orb.beat { transform: scale(1.06); }
   [data-state="speaking"] .ring { border-color: var(--speak); animation: ripple 1.6s ease-out infinite; }
-  [data-state="paused"] .orb { --orb-a: #d9d5cb; --orb-b: #9b968a; --glow: rgba(155,150,138,.35); }
+  [data-state="paused"] .orb { filter: saturate(.3); }
   @keyframes breathe { 50% { transform: scale(1.04); filter: brightness(1.08); } }
-  @keyframes swirl { 0% { filter: hue-rotate(0deg); transform: rotate(0) scale(1.02); } 100% { filter: hue-rotate(25deg); transform: rotate(360deg) scale(1.02); } }
-  @keyframes ripple { 0% { transform: scale(.8); opacity: .7; } 100% { transform: scale(1.25); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .orb, .ring { animation: none !important; } }
-  #stateLabel { font-weight: 600; letter-spacing: .3px; text-transform: lowercase; color: var(--muted); }
-
-  .captions { width: min(560px, 100%); display: grid; gap: 8px; }
-  .cap { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; min-height: 44px; }
-  .cap .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+  @keyframes ripple { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.25); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .orb, .ring, .seat .av::after, .headcard .listening i { animation: none !important; } }
+  #stateLabel { font-weight: 600; letter-spacing: .3px; text-transform: lowercase; color: var(--muted); font-size: 13px; }
+  .nring { position: absolute; inset: 2px; border-radius: 50%; border: 3px solid var(--think); opacity: 0; pointer-events: none; }
+  body.has-notices .nring { opacity: 1; animation: nring 1.8s ease-in-out infinite; }
+  @keyframes nring { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.06); opacity: .35; } }
+  .nbadge { position: absolute; top: 6px; right: 6px; min-width: 28px; height: 28px; padding: 0 8px; border-radius: 999px; background: var(--think); color: white; font-weight: 700; font-size: 13px; display: none; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,.2); cursor: pointer; border: none; }
+  body.has-notices .nbadge { display: grid; animation: pop .3s ease-out; }
+  @keyframes pop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+  .captions { width: 100%; display: grid; gap: 6px; }
+  .cap { background: var(--bg); border-radius: 12px; padding: 7px 12px; min-height: 38px; font-size: 14px; }
+  .cap .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
   .cap.you .txt { color: var(--muted); }
-  .cap.buddy .txt .done { color: var(--ink); }
   .cap.buddy .txt .now { background: color-mix(in srgb, var(--speak) 25%, transparent); border-radius: 4px; }
   .cap.buddy .txt .todo { color: var(--muted); }
-  #paused { display: none; width: min(560px, 100%); border: 1px dashed var(--think); color: var(--ink); background: color-mix(in srgb, var(--think) 10%, transparent); border-radius: 12px; padding: 8px 14px; font-size: 14px; }
+  #paused { display: none; width: 100%; border: 1px dashed var(--think); background: color-mix(in srgb, var(--think) 10%, transparent); border-radius: 12px; padding: 6px 12px; font-size: 13px; }
   body.is-paused #paused { display: block; }
-
-  .controls { display: flex; gap: 14px; align-items: center; margin-top: 4px; }
-  .btn { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 20px; cursor: pointer; display: grid; place-items: center; }
+  .controls { display: flex; gap: 12px; align-items: center; }
+  .btn { width: 50px; height: 50px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 18px; cursor: pointer; display: grid; place-items: center; }
   .btn:disabled { opacity: .4; cursor: default; }
   .btn.on { background: var(--ink); color: var(--bg); }
-  .btn.call { width: 68px; height: 68px; background: var(--speak); color: white; border: none; font-size: 26px; }
+  .btn.call { width: 62px; height: 62px; background: var(--speak); color: white; border: none; font-size: 24px; }
   .btn.call.end { background: var(--danger); }
-  .btn small { display: block; font-size: 10px; }
-  .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 460px; }
-  form#typeForm { width: min(560px, 100%); display: flex; gap: 8px; }
-  form#typeForm input { flex: 1; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; }
+  form#typeForm { width: 100%; display: flex; gap: 8px; }
+  form#typeForm input { flex: 1; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+
+  /* the table: one seat per project agent, each its own Claude session */
+  .tablehead { width: min(820px, 100%); display: flex; align-items: center; gap: 10px; }
+  .tablehead h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .tablehead .acts { margin-left: auto; display: flex; gap: 6px; }
+  .tablehead .acts button { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .tablehead .acts button:disabled { opacity: .45; cursor: default; }
+  #table { width: min(820px, 100%); display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .seat { position: relative; text-align: left; border-radius: 16px; border: 1px solid var(--line); background: var(--card); padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; min-height: 132px; transition: border-color .2s, box-shadow .2s, transform .2s; }
+  .seat:hover { border-color: hsl(var(--hue) 45% 55% / .7); }
+  .seat.on { border-color: hsl(var(--hue) 55% 50%); box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .25); }
+  .seat.talking { transform: translateY(-2px); box-shadow: 0 6px 22px hsl(var(--hue) 60% 50% / .25); }
+  .seat .top { display: flex; align-items: center; gap: 10px; }
+  .av { position: relative; flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: white; background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 70% 68%), hsl(var(--hue) 55% 45%)); }
+  .av.mini { width: 22px; height: 22px; font-size: 11px; }
+  .av.big { width: 52px; height: 52px; font-size: 22px; }
+  .av::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 55%); opacity: 0; }
+  .seat[data-state="working"] .av::after { opacity: .8; animation: ripple 1.6s ease-out infinite; }
+  .seat.talking .av::after { opacity: 1; border-color: var(--speak); animation: ripple 1s ease-out infinite; }
+  .seat[data-state="parked"], .seat[data-state="cold"] { opacity: .66; }
+  .seat[data-state="parked"] .av { filter: grayscale(1); }
+  .seat .nm { font-weight: 700; font-size: 16px; line-height: 1.2; }
+  .seat .st { font-size: 11px; color: var(--muted); }
+  .seat.on .st { color: hsl(var(--hue) 50% 42%); font-weight: 650; }
+  .seat .doing { font-size: 12.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; }
+  .seat .doing.live::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--hue) 60% 50%); margin-right: 6px; vertical-align: 1px; animation: breathe 1.2s ease-in-out infinite; }
+  .seat .meta { margin-top: auto; font-size: 10.5px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seat .handup { position: absolute; top: -10px; right: -6px; font-size: 22px; display: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
+  .seat.raised .handup { display: block; animation: wave 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
+  .seat.raised { border-color: var(--think); }
+  @keyframes wave { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } }
+  .seat .tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+  .seat:hover .tools { opacity: 1; }
+  .seat .tools button { border: none; background: var(--bg); color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 11px; padding: 1px 5px; }
+  .seat .tools button:hover { color: var(--ink); }
+  .steps { display: flex; gap: 3px; margin-top: 2px; }
+  .steps span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); position: relative; }
+  .steps span.done { background: hsl(var(--hue) 55% 55%); }
+  .steps span.now { background: linear-gradient(90deg, hsl(var(--hue) 55% 55%), var(--line)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+  .steplabel { font-size: 10.5px; color: var(--muted); }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .seat.add { border-style: dashed; align-items: center; justify-content: center; color: var(--muted); gap: 4px; }
+  .seat.add .plus { font-size: 28px; line-height: 1; }
+  .seat.add:hover { color: var(--ink); }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 640px; line-height: 1.55; }
+
+  /* new project dialog */
+  dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); padding: 18px; width: min(460px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h3 { margin: 0 0 10px; }
+  dialog label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  dialog input, dialog textarea { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  dialog textarea { min-height: 84px; resize: vertical; }
+  dialog .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  dialog .tabs button, dialog .row button { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  dialog .tabs button.on { background: var(--ink); color: var(--bg); }
+  dialog .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+  dialog .row .go { background: var(--accent); color: white; border-color: var(--accent); }
+  dialog .check { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--ink); font-size: 13px; }
 
   /* behind the scenes */
   #feedWrap { min-width: 0; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: color-mix(in srgb, var(--card) 55%, var(--bg)); }
@@ -124,21 +227,17 @@
   .notice .allow { margin-left: auto; font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
   .notice .allow:hover { background: var(--ink); color: var(--bg); }
 
-  /* roster */
-  #roster { width: min(560px, 100%); display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
-  .proj { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; cursor: pointer; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
-  .proj .dot { width: 9px; height: 9px; border-radius: 50%; background: hsl(var(--hue) 60% 55%); flex: none; }
-  .proj .pname { font-weight: 600; }
-  .proj .pside { color: var(--muted); font-size: 10px; }
-  .proj .pstate, .proj .pbranch { color: var(--muted); font-size: 11px; }
-  .proj .pbranch { font-family: var(--mono); opacity: .7; }
-  .proj.on { border-color: hsl(var(--hue) 55% 50%); box-shadow: 0 0 0 2px hsl(var(--hue) 60% 55% / .22); }
-  .proj[data-state="working"] .dot { animation: breathe 1.4s ease-in-out infinite; }
-  .proj[data-state="blocked"] .dot { background: var(--think); animation: breathe .9s ease-in-out infinite; }
-  .proj[data-state="parked"] { opacity: .5; }
-  .proj[data-state="parked"] .dot { background: var(--muted); }
-  #speakerLine { font-size: 12px; color: var(--muted); min-height: 1.2em; }
-  /* the access gate: shown until the handshake is accepted */
+  #feedWrap h2 { flex: none; }
+  #filters { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #filters button { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  #filters button .dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--hue) 60% 55%); }
+  #filters button.on { color: var(--ink); border-color: var(--ink); }
+  .turn .q .who, .turn .q .bg { flex: none; white-space: nowrap; text-align: left; }
+  .turn .bg { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; font-weight: 600; }
+  .actchip { font-size: 12px; font-family: var(--mono); border: 1px dashed hsl(var(--hue, 18) 50% 55%); border-radius: 8px; padding: 4px 8px; }
+  .actchip b { color: hsl(var(--hue, 18) 45% 45%); }
+  .note.problem { color: var(--danger); font-style: normal; }
+
   #gate { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: var(--bg); padding: 24px; }
   body.locked #gate { display: grid; }
   body.locked main, body.locked header { visibility: hidden; }
@@ -149,9 +248,15 @@
   #gate button { font: inherit; padding: 9px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
   #gateMsg { color: var(--think); min-height: 1.2em; font-size: 13px; }
   #speakerLine b { color: var(--ink); }
-  @media (max-width: 760px) {
-    main { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    #feedWrap { border-left: none; border-top: 1px solid var(--line); min-height: 50vh; }
+
+  @media (max-width: 1200px) {
+    main { grid-template-columns: 280px 1fr; grid-template-rows: 1fr auto; }
+    #feedWrap { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); height: 42vh; }
+  }
+  @media (max-width: 780px) {
+    main, body.audio main { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+    #head { border-right: none; border-bottom: 1px solid var(--line); max-height: 38vh; }
+    #feedWrap { min-height: 50vh; height: auto; }
   }
 </style>
 </head>
@@ -166,40 +271,71 @@
   </form>
 </div>
 <header>
-  <h1>Buddy</h1>
+  <h1>Buddy <small>team call</small></h1>
   <span id="ears" class="pill">ears loading…</span>
   <span class="spacer"></span>
   <label class="toggle" title="Instant barge-in. Turn on when Buddy's voice cannot reach your mic."><input type="checkbox" id="phones"> headphones</label>
-  <label class="toggle" title="A short tone from each project's own side before it speaks."><input type="checkbox" id="earcons" checked> earcons</label>
+  <label class="toggle" title="A short tone from each agent's own side before it speaks."><input type="checkbox" id="earcons" checked> earcons</label>
+  <label class="toggle" title="How readily the mic decides you are talking. Low ignores more coughs and background noise; you may need to speak up.">mic <select id="sensitivity"><option value="low">low (noisy room)</option><option value="normal" selected>normal</option><option value="high">high (quiet room)</option></select></label>
+  <label class="toggle" title="A soft chime the moment someone raises a hand, before it is read out."><input type="checkbox" id="ringToggle" checked> ring</label>
   <label class="toggle"><input type="checkbox" id="audioOnly"> audio-only</label>
   <label class="toggle">sleep after <input id="sleep" type="number" min="2" max="60"> min</label>
 </header>
 <main>
-  <section id="call" data-state="asleep">
-    <div class="who"><div class="name">Buddy</div><div class="sub" id="timer">not connected</div></div>
-    <div id="roster"></div>
-    <div class="orb-wrap"><div class="ring"></div><div class="orb" id="orb"></div></div>
-    <div id="stateLabel">asleep</div>
-    <div id="speakerLine">on the line: <b id="onLine">Buddy</b> · speaking: <span id="speaker">—</span></div>
-    <div id="paused">Paused at “<span id="pausedAt"></span>”. Say <b>go on</b> to continue, or just ask something else.</div>
-    <div class="captions">
-      <div class="cap you"><div class="lbl">You</div><div class="txt" id="capYou">—</div></div>
-      <div class="cap buddy"><div class="lbl">Buddy</div><div class="txt" id="capBuddy">—</div></div>
+  <aside id="head">
+    <h2 class="sec"><span>Head of the team</span></h2>
+    <div id="headCard"></div>
+    <h2 class="sec"><span>Raised hands</span><span class="count" id="trayCount"></span></h2>
+    <div class="hands" id="tray"><div class="empty">No hands up. When an agent needs a yes, a no, or an answer, it raises a hand here and the head reads it out when you are free.</div></div>
+  </aside>
+  <section id="room">
+    <div class="stage" id="call" data-state="asleep">
+      <div class="floor">has the floor</div>
+      <div class="who"><span class="nm" id="onLine">Ada</span><span class="rl" id="onLineRole"></span></div>
+      <div class="orb-wrap"><div class="ring"></div><div class="nring"></div><div class="orb" id="orb">A</div><button class="nbadge" id="nbadge" title="Hear the raised hands now"></button></div>
+      <div id="stateLabel">asleep</div>
+      <div id="paused">Paused at “<span id="pausedAt"></span>”. Say <b>go on</b> to continue, or just ask something else.</div>
+      <div class="captions">
+        <div class="cap you"><div class="lbl">You</div><div class="txt" id="capYou">—</div></div>
+        <div class="cap buddy"><div class="lbl" id="capWho">—</div><div class="txt" id="capBuddy">—</div></div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="muteBtn" title="Mute mic" disabled>🎙️</button>
+        <button class="btn call" id="callBtn" title="Start the call">📞</button>
+        <button class="btn" id="pauseBtn" title="Pause" disabled>⏸</button>
+        <button class="btn" id="statusBtn" title="Roll call: where everyone is">☰</button>
+      </div>
+      <form id="typeForm" autocomplete="off"><input id="typeBox" placeholder="…or type" disabled></form>
+      <div class="sub" id="timer" style="font-size:12px;color:var(--muted)">not connected</div>
     </div>
-    <div class="controls">
-      <button class="btn" id="muteBtn" title="Mute mic" disabled>🎙️</button>
-      <button class="btn call" id="callBtn" title="Start call">📞</button>
-      <button class="btn" id="pauseBtn" title="Pause Buddy" disabled>⏸</button>
-      <button class="btn" id="statusBtn" title="Roll call: how every project is doing">☰</button>
+    <div class="tablehead">
+      <h2>At the table</h2><span class="count" id="projCount" style="font-size:12px;color:var(--muted)"></span>
+      <div class="acts">
+        <button id="standupBtn" title="Each agent gives its latest update, in its own voice" disabled>Stand-up</button>
+        <button id="newBtn" title="Seat a new project agent" disabled>+ New project</button>
+      </div>
     </div>
-    <form id="typeForm" autocomplete="off"><input id="typeBox" placeholder="…or type to Buddy" disabled></form>
-    <div class="hint">Just talk, like a call. Say a project's <b>name</b> to put it on the line (“Ada, run the tests”), or <b>status</b> for a roll call. Only the project on the line speaks; the others report through Buddy. Say <b>allow Ada</b> to grant a permission, <b>park Ada</b> to put one away. Also: pause, go on, stop, stop everyone, repeat, shorter, go to sleep. Keys 1–9 switch projects.</div>
+    <div id="table"></div>
+    <div class="hint">Talk to <b>Ada</b>, the head: “start a project for a todo app”, “open my api folder”, “have Rex add tests”. Say an agent’s <b>name</b> to give it the floor, <b>Ada</b> to come back. Agents ask only before risky actions: <b>allow Rex</b>, <b>allow Rex always</b>, <b>deny Rex</b>. <b>Tell Rex …</b> answers without switching. <b>Stand-up</b> hears everyone; <b>updates</b> hears raised hands now. Also: status, pause, go on, stop, stop everyone, repeat, shorter, go to sleep. Keys 0–9 switch.</div>
   </section>
   <section id="feedWrap">
     <h2><span>Behind the scenes</span><span id="feedState"></span></h2>
+    <div id="filters"></div>
     <div id="feed"></div>
   </section>
 </main>
+<dialog id="newDlg">
+  <form method="dialog" id="newForm">
+    <h3>Seat a project agent</h3>
+    <div class="tabs"><button type="button" data-tab="new" class="on">New folder</button><button type="button" data-tab="open">Existing folder</button></div>
+    <label>Agent name <input name="name" placeholder="Juno — one word, easy to say" autocomplete="off"></label>
+    <label data-for="new">Folder in the home <input name="folder" placeholder="todo-app" autocomplete="off"></label>
+    <label data-for="open" hidden>Folder path <input name="path" placeholder="~/code/api" autocomplete="off"></label>
+    <label>Brief <textarea name="brief" placeholder="What it should do, and what done looks like. Leave empty to just talk to it."></textarea></label>
+    <label class="check"><input type="checkbox" name="focus"> give it the floor now, instead of working in the background</label>
+    <div class="row"><button value="cancel" formnovalidate>Cancel</button><button class="go" value="ok">Seat it</button></div>
+  </form>
+</dialog>
 <script src="/vendor/ort/ort.wasm.min.js"></script>
 <script src="/vendor/vad/bundle.min.js"></script>
 <script src="app.js" type="module"></script>

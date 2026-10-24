@@ -20,14 +20,16 @@ export const VISUAL = /^switch to (visual|video|screen)( mode)?$/;
 export const SHORTER = /^shorter$/;
 const STATUS = /^(status|status report|roll call|everyone|where are we|what'?s? (the )?status|how is everyone|sitrep)$/;
 const STOP_ALL = /^(stop everyone|stop everything|everyone stop|stop all)$/;
+export const STANDUP = /^(stand ?up|stand-up|team (update|updates|meeting)|everyone report|round the table|go round the table|daily stand ?up)$/;
+export const UPDATES = /^(updates?|any updates|what did i miss|what'?s new|notifications?|read (me )?(the )?(updates|notifications)|go ahead ada|tell me now)$/;
 
 /** Patterns handled entirely on the page. Matched before the echo guard, so they never vanish. */
-export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL];
+export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL, UPDATES, STANDUP];
 
 const LOCAL_KINDS = [
   [PAUSE, "pause"], [RESUME, "resume"], [STOP, "stop"], [SLEEP, "sleep"],
   [REPEAT, "repeat"], [AUDIO, "audio"], [VISUAL, "visual"], [SHORTER, "shorter"],
-  [STATUS, "status"], [STOP_ALL, "stop-all"],
+  [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"],
 ];
 
 /** One edit apart, for a bare name said on its own where a wrong guess costs nothing. */
@@ -59,6 +61,7 @@ function findNear(projects, word) {
  * - `focus`    put a project on the line and say nothing else
  * - `address`  a project by name plus a question for it
  * - `grant` / `deny` / `park`  acting on a named project, or the one that is waiting
+ * - `tell`     pass a message to a named project without moving the line ("tell Rex to use SQLite")
  * - `ask`      send to whoever is on the line
  */
 export function route(raw, projects, { waiting = null } = {}) {
@@ -89,6 +92,17 @@ export function route(raw, projects, { waiting = null } = {}) {
   if (park) {
     const target = findExact(projects, park[2]);
     if (target) return { kind: "park", project: target.id };
+  }
+
+  // "tell rex to use sqlite" / "tell rex: sqlite" — the answer to a relayed question, sent without
+  // leaving whoever you are talking to. Exact names only: this carries an instruction.
+  const tell = /^(tell|ask|answer|reply to) (\w+)\b/.exec(t);
+  if (tell) {
+    const target = findExact(projects, tell[2]);
+    if (target && !target.central) {
+      const rest = raw.trim().replace(/^\S+\s+(to\s+)?\S+?[\s,:]+/i, "").replace(/^(to|that)\s+/i, "").trim();
+      if (rest) return { kind: "tell", project: target.id, text: rest };
+    }
   }
 
   // "switch to ada" / "talk to ada" / "put ada on"

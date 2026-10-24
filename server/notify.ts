@@ -4,7 +4,7 @@
  * always naming the project first so you know who it is about before you know what it is.
  */
 
-export type NotifyKind = "permission" | "finished" | "failed";
+export type NotifyKind = "permission" | "question" | "finished" | "failed" | "blocked";
 
 export interface Notification {
   project: string; // project id
@@ -27,6 +27,35 @@ export function permissionPhrase(tool: string): string {
   }
 }
 
+const base = (p: unknown) => String(p ?? "").split("/").filter(Boolean).pop() ?? "";
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1).replace(/\.$/, "");
+
+/**
+ * What a paused action would do, in words for the ear and in full for the screen. The tool's own
+ * description is used when it has one ("Install dependencies"), because that is what a person
+ * would say; the exact command or path always goes on screen, never into speech.
+ */
+export function describeAction(tool: string, input: any): { phrase: string; detail: string } {
+  const i = input ?? {};
+  switch (tool) {
+    case "Bash":
+      return { phrase: i.description ? lower(String(i.description)) : "run a command", detail: String(i.command ?? "") };
+    case "Write":
+      return { phrase: `create ${base(i.file_path) || "a file"}`, detail: String(i.file_path ?? "") };
+    case "Edit": case "MultiEdit": case "NotebookEdit":
+      return { phrase: `change ${base(i.file_path ?? i.notebook_path) || "a file"}`, detail: String(i.file_path ?? i.notebook_path ?? "") };
+    case "WebFetch": {
+      let host = "";
+      try { host = new URL(String(i.url)).hostname; } catch {}
+      return { phrase: host ? `open a page on ${host}` : "go online", detail: String(i.url ?? "") };
+    }
+    case "WebSearch":
+      return { phrase: "search the web", detail: String(i.query ?? "") };
+    default:
+      return { phrase: permissionPhrase(tool), detail: JSON.stringify(i).slice(0, 400) };
+  }
+}
+
 /** The first sentence of what a project said last, used as its own one-line report. */
 export function summarise(said: string[]): string {
   const last = [...said].reverse().find((s) => s.trim());
@@ -35,14 +64,22 @@ export function summarise(said: string[]): string {
   return first.length > 140 ? first.slice(0, 139) + "…" : first;
 }
 
-export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[] } = {}): Notification {
+export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string } = {}): Notification {
   const summary = summarise(info.said ?? []);
   let text: string;
   let detail: string;
   if (kind === "permission") {
-    const phrase = permissionPhrase(info.tool ?? "a tool");
-    text = `${name} needs permission to ${phrase}. Say allow ${name}, or leave it.`;
+    const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
+    text = `${name} wants to ${phrase}. Say allow ${name}, or deny.`;
     detail = info.message || `${name} wants to ${phrase}.`;
+  } else if (kind === "blocked") {
+    const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
+    text = `The safety check stopped ${name} from trying to ${phrase}. ${name} will carry on without it.`;
+    detail = info.message || "";
+  } else if (kind === "question") {
+    const q = (info.question ?? "").trim();
+    text = `${name} has a question. ${q} Say tell ${name}, and your answer.`;
+    detail = q;
   } else if (kind === "failed") {
     text = `${name} hit a problem.${summary ? ` ${summary}` : ""}`;
     detail = info.message || summary;
@@ -55,10 +92,10 @@ export function notification(kind: NotifyKind, name: string, project: string, in
 
 /**
  * Several things finished while you were talking: say how many, then the most important two.
- * Permission requests come first, because they are the only ones that are blocking.
+ * Permission requests and questions come first, because they are the ones that are blocking.
  */
 export function batch(pending: Notification[]): string {
-  const rank = { permission: 0, failed: 1, finished: 2 } as const;
+  const rank = { permission: 0, question: 1, blocked: 2, failed: 3, finished: 4 } as const;
   const sorted = [...pending].sort((a, b) => rank[a.kind] - rank[b.kind] || a.at - b.at);
   if (sorted.length === 1) return sorted[0].text;
   const head = sorted.slice(0, 2).map((n) => n.text.replace(/\.$/, ""));

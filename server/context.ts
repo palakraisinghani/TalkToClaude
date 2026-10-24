@@ -2,8 +2,12 @@ import type { Mode } from "./types.ts";
 
 /** What the listener had heard when they cut in, as reported by the page. */
 export interface CallContext {
-  /** "paused": the user said pause first; "interrupted": they talked over the reply. */
-  kind: "paused" | "interrupted";
+  /** "paused": the user said pause first; "interrupted": they talked over the reply; "followup": they added something while it worked silently. */
+  kind: "paused" | "interrupted" | "followup";
+  /** The running work was left going, and this message waited for it to finish. */
+  queued?: boolean;
+  /** This replaces the message queued just before it: the second half of the same sentence. */
+  replace?: boolean;
   /** The last words Buddy spoke before stopping. */
   heard?: string;
   /** Sentences queued or still being written that the user never heard. */
@@ -27,11 +31,13 @@ export function formatContext(mode: Mode, ctx?: CallContext | null, onTheLine = 
     if (ctx.kind === "paused") {
       const secs = Math.round((ctx.pausedMs ?? 0) / 1000);
       bits.push(`the user said pause${secs >= 2 ? ` ${secs}s ago` : ""}`);
-    } else bits.push("the user talked over you");
+    } else if (ctx.kind === "followup") bits.push("the user said this while you were working");
+    else bits.push("the user talked over you");
     if (ctx.heard) bits.push(`the last thing they heard was ${quote(ctx.heard)}`);
     const unheard = (ctx.unheard ?? []).filter(Boolean);
     if (unheard.length) bits.push(`they did not hear ${unheard.length} more sentence${unheard.length > 1 ? "s" : ""}: ${quote(unheard.join(" "), 240)}`);
-    if (ctx.working) bits.push("your previous work was stopped");
+    if (ctx.queued) bits.push("your previous work was not stopped and has now finished; do not redo it, answer this");
+    else if (ctx.working) bits.push("your previous work was stopped");
     parts.push(`[cut in: ${bits.join("; ")}]`);
   }
   return parts.join(" ");

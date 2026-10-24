@@ -64,3 +64,22 @@ test("parking takes a name, and bare pause stays a page command", () => {
 test("anything else goes to whoever is on the line", () => {
   assert.deepEqual(route("why is login failing", P), { kind: "ask", text: "why is login failing" });
 });
+
+test("telling a project something does not move the line", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "rex", name: "Rex" }];
+  assert.deepEqual(route("tell Rex to use SQLite", Q), { kind: "tell", project: "rex", text: "use SQLite" });
+  assert.deepEqual(route("answer rex, the second one", Q), { kind: "tell", project: "rex", text: "the second one" });
+  assert.deepEqual(route("reply to Rex: yes go ahead", Q), { kind: "tell", project: "rex", text: "yes go ahead" });
+  // the central agent is talked to, not told
+  assert.equal(route("tell Ada hello", Q).kind, "ask");
+  // a misheard name carries nothing anywhere else
+  assert.equal(route("tell rax to stop", Q).kind, "ask");
+});
+
+test("asking for updates is a page command", () => {
+  for (const s of ["updates", "any updates", "what did I miss"]) assert.deepEqual(route(s, P), { kind: "local", name: "updates" });
+});
+
+test("a stand-up is a page command", () => {
+  for (const s of ["stand-up", "standup", "team update", "go round the table"]) assert.deepEqual(route(s, P), { kind: "local", name: "standup" });
+});

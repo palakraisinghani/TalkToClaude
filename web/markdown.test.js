@@ -28,3 +28,12 @@ test("nested lists, numbered lists, tables", () => {
 test("html is escaped everywhere", () => {
   assert.doesNotMatch(renderMarkdown("<script>x</script>\n# <b>h</b>"), /<script>|<b>h/);
 });
+
+test("long table-like lines render in linear time", () => {
+  const nasty = "|" + " -- |".repeat(400) + " x";
+  const table = ["| section | count |", "|---|---|", ...Array.from({ length: 300 }, (_, i) => `| ${i} | ${"-".repeat(60)} |`)].join("\n");
+  const t = Date.now();
+  renderMarkdown(`${nasty}\n${table}\n${"| ".repeat(3000)}`);
+  assert.ok(Date.now() - t < 200, `took ${Date.now() - t}ms`);
+  assert.match(renderMarkdown("| a | b |\n| :-- | --: |\n| 1 | 2 |"), /<table>.*<td>1<\/td>/);
+});

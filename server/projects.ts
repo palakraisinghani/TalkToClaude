@@ -1,9 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
-import { identityFor, type Identity } from "./identity.ts";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { CENTRAL_ID, identityFor, type Identity } from "./identity.ts";
 
-/** Permission modes the CLI accepts. `manual` denies anything that would prompt, and reports it. */
+/** Permission modes the CLI accepts. `auto` asks only about what its safety check judges risky. */
 export type PermissionMode = "auto" | "acceptEdits" | "manual" | "plan" | "default" | "dontAsk" | "bypassPermissions";
 
 /** How much a project talks: on the line, or working quietly in the background. */
@@ -20,6 +20,8 @@ export interface ProjectConfig {
   /** Used while it works in the background, where nobody is listening to approve things. */
   backgroundPermissionMode: PermissionMode;
   engagement: Engagement;
+  /** A past Claude session to pick up when this project's agent is first started. */
+  resume?: string;
 }
 
 interface RawProject {
@@ -55,12 +57,39 @@ function mode(v: unknown, fallback: PermissionMode): PermissionMode {
   return MODES.includes(v as PermissionMode) ? (v as PermissionMode) : fallback;
 }
 
+/** A project remembered from an earlier call: enough to reopen it and pick up its conversation. */
+export interface SavedProject {
+  name: string;
+  dir: string;
+  sessionId?: string;
+}
+
+/** The projects opened in earlier calls. A missing or broken file just means none. */
+export async function loadSaved(file: string): Promise<SavedProject[]> {
+  try {
+    const parsed = JSON.parse(await readFile(file, "utf8"));
+    const list = Array.isArray(parsed?.projects) ? parsed.projects : [];
+    return list.filter((p: any) => typeof p?.dir === "string" && typeof p?.name === "string");
+  } catch {
+    return [];
+  }
+}
+
+/** Remember the roster, written whole and renamed into place so a crash never leaves half a file. */
+export async function saveRoster(file: string, projects: SavedProject[]): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify({ projects }, null, 2) + "\n");
+  await rename(tmp, file);
+}
+
 /**
  * Read the roster. `buddy.projects.json` next to the app wins; otherwise BUDDY_PROJECTS, a
- * comma-separated list of directories; otherwise a single project on BUDDY_CWD, which keeps a
- * plain one-directory setup working with no configuration at all.
+ * comma-separated list of directories. Projects remembered from earlier calls follow, unless the
+ * same folder is already listed. None at all is normal: the central agent opens projects when
+ * asked, and is always on the call herself.
  */
-export async function loadProjects(root: string, fallbackDir: string): Promise<ProjectConfig[]> {
+export async function loadProjects(root: string, fallbackDir: string, saved: SavedProject[] = []): Promise<ProjectConfig[]> {
   let raw: RawProject[] = [];
   try {
     const parsed = JSON.parse(await readFile(join(root, CONFIG_FILE), "utf8"));
@@ -73,7 +102,18 @@ export async function loadProjects(root: string, fallbackDir: string): Promise<P
     raw = dirs.map((dir) => ({ dir }));
   }
 
-  const used = new Set<string>();
+  // a remembered project comes back under the same name, with its conversation
+  const listed = new Set(raw.map((p) => resolve(root, expand(p.dir ?? fallbackDir))));
+  const resumes = new Map<number, string>();
+  for (const s of saved) {
+    if (listed.has(s.dir)) continue;
+    listed.add(s.dir);
+    if (s.sessionId) resumes.set(raw.length, s.sessionId);
+    raw.push({ name: s.name, dir: s.dir });
+  }
+
+  // the central agent's name is taken before anyone else's: you must always be able to reach her
+  const used = new Set<string>([CENTRAL_ID]);
   return raw.map((p, i) => {
     // a relative dir in the config is relative to the app, so a checked-in roster is portable
     const dir = resolve(root, expand(p.dir ?? fallbackDir));
@@ -95,11 +135,12 @@ export async function loadProjects(root: string, fallbackDir: string): Promise<P
         earcon: base.earcon,
         hue: p.hue ?? base.hue,
       },
-      // on the line you can approve things out loud, so edits are allowed; in the background
-      // nobody is listening, so anything that would prompt is denied and reported instead
+      // auto everywhere: the safety check lets ordinary work through, and anything it judges risky
+      // pauses the agent until you answer — on the line or in the background, through the head
       permissionMode: mode(p.permissionMode, "auto"),
-      backgroundPermissionMode: mode(p.backgroundPermissionMode, "manual"),
+      backgroundPermissionMode: mode(p.backgroundPermissionMode, "auto"),
       engagement: p.engagement === "delegate" ? "delegate" : "pair",
+      resume: resumes.get(i),
     };
   });
 }
@@ -110,7 +151,7 @@ export async function loadProjects(root: string, fallbackDir: string): Promise<P
  * identity from its position in the roster, and both are kept clear of what is already in use.
  */
 export function projectFor(dir: string, index: number, taken: Iterable<string>, overrides: RawProject = {}): ProjectConfig {
-  const used = new Set(taken);
+  const used = new Set([CENTRAL_ID, ...taken]);
   const wanted = titleCase(overrides.name ?? basename(dir));
   let name = wanted;
   for (let n = 2; used.has(slug(name)); n++) name = `${wanted}${n}`;
@@ -128,7 +169,7 @@ export function projectFor(dir: string, index: number, taken: Iterable<string>, 
       hue: overrides.hue ?? base.hue,
     },
     permissionMode: mode(overrides.permissionMode, "auto"),
-    backgroundPermissionMode: mode(overrides.backgroundPermissionMode, "manual"),
+    backgroundPermissionMode: mode(overrides.backgroundPermissionMode, "auto"),
     engagement: overrides.engagement === "delegate" ? "delegate" : "pair",
   };
 }

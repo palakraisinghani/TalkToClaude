@@ -4,14 +4,16 @@ export type AgentEvent =
   | { kind: "tool"; id: string; name: string; input: unknown }
   | { kind: "tool_result"; id: string; ok: boolean; summary: string; detail: string }
   | { kind: "permission"; tool: string; toolUseId: string; message: string }
+  /** The agent is paused on an action that needs a person's yes or no. */
+  | { kind: "ask"; requestId: string; tool: string; input: any; reason: string; title: string; suggestions: unknown[] }
   | { kind: "done"; sessionId: string; interrupted: boolean }
   | { kind: "error"; message: string };
 
 /** A long-lived agent conversation: one warm process per call, one message per turn. */
 export interface Agent {
   start(): void;
-  /** Queue a user message; returns its turn number. Interrupts the running turn first. */
-  send(text: string): number;
+  /** Queue a user message; returns its turn number. Interrupts the running turn first unless told not to. */
+  send(text: string, opts?: { interrupt?: boolean; replaceQueued?: boolean }): number;
   interrupt(): void;
   /** Raise or lower what this session may do, without losing its context. */
   setPermissionMode(mode: string): void;

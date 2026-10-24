@@ -4,15 +4,32 @@ export type ParsedEvent =
   | { kind: "sentence"; text: string }
   | { kind: "screen"; text: string }
   | { kind: "aside"; text: string }
-  | { kind: "fallback"; text: string };
+  | { kind: "fallback"; text: string }
+  /** A whole <question> block, once it closes. Its sentences are also emitted as speech. */
+  | { kind: "question"; text: string }
+  /** A control tag such as <open path="…"/> or <delegate to="rex">…</delegate>. */
+  | { kind: "action"; name: ActionName; attrs: Record<string, string>; body: string; text: string };
 
-type Section = "none" | "say" | "screen";
-const OPEN = /<(say|screen)>/;
+export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close";
+
+type Section = "none" | "say" | "screen" | "question";
+const OPEN = /<(say|screen|question)>|<(open|new|switch|delegate|park|close)(?=[\s/>])/;
+// long enough to hold back the start of the longest tag name, "<question" or "<delegate "
+const HOLD = 12;
+
+function attrs(raw: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const m of raw.matchAll(/([\w-]+)\s*=\s*"([^"]*)"/g)) out[m[1].toLowerCase()] = m[2];
+  return out;
+}
 
 /**
  * Streaming parser for conversational replies. Any number of <say> blocks are spoken
  * sentence by sentence as they close; <screen> goes to the panel; text outside tags is
  * the agent working aloud and goes to the behind-the-scenes feed.
+ * <question> is spoken like <say>, and also reported whole, so a project working in the
+ * background can put a question to the person through the central voice.
+ * Action tags are only produced by the central agent; they are passed on whole, never spoken.
  * If no <say> appears all turn, end() yields one fallback event with the outside text.
  */
 export class ReplyParser {
@@ -21,6 +38,7 @@ export class ReplyParser {
   private section: Section = "none";
   private sawSay = false;
   private pending = "";
+  private question = "";
 
   feed(delta: string): ParsedEvent[] {
     this.buf += delta;
@@ -33,14 +51,22 @@ export class ReplyParser {
         else {
           // hold back a possible partial opening tag
           const lt = this.buf.lastIndexOf("<");
-          const hold = lt >= 0 && this.buf.length - lt < 8 ? lt : this.buf.length;
+          const hold = lt >= 0 && this.buf.length - lt < HOLD ? lt : this.buf.length;
           chunk = this.buf.slice(0, hold);
         }
         if (chunk) { this.outside += chunk; out.push({ kind: "aside", text: chunk }); }
         if (!m) { this.buf = this.buf.slice(chunk.length); break; }
+        this.buf = this.buf.slice(m.index);
+        if (m[2]) {
+          // an action tag is only acted on once it is complete, so wait for the rest of it
+          const action = this.action(m[2] as ActionName);
+          if (!action) break;
+          out.push(action);
+          continue;
+        }
         this.section = m[1] as Section;
-        if (this.section === "say") this.sawSay = true;
-        this.buf = this.buf.slice(m.index + m[0].length);
+        if (this.section !== "screen") this.sawSay = true;
+        this.buf = this.buf.slice(m[0].length);
         continue;
       }
       const close = `</${this.section}>`;
@@ -53,13 +79,19 @@ export class ReplyParser {
         chunk = this.buf.slice(0, this.buf.length - keep);
         this.buf = this.buf.slice(this.buf.length - keep);
       }
-      if (this.section === "say") {
+      if (this.section === "say" || this.section === "question") {
+        if (this.section === "question") this.question += chunk;
         this.pending += chunk;
         const { sentences, rest } = splitSentences(this.pending);
         this.pending = rest;
         for (const s of sentences) out.push({ kind: "sentence", text: s });
         if (closed && this.pending.trim()) out.push({ kind: "sentence", text: this.pending.trim() });
         if (closed) this.pending = "";
+        if (closed && this.section === "question") {
+          const q = this.question.replace(/\s+/g, " ").trim();
+          this.question = "";
+          if (q) out.push({ kind: "question", text: q });
+        }
       } else if (chunk) out.push({ kind: "screen", text: chunk });
       if (closed) { this.section = "none"; continue; }
       break;
@@ -67,10 +99,32 @@ export class ReplyParser {
     return out;
   }
 
+  /** A complete action tag at the start of the buffer, consumed; null while it is still arriving. */
+  private action(name: ActionName): ParsedEvent | null {
+    const gt = this.buf.indexOf(">");
+    if (gt < 0) return null;
+    const head = this.buf.slice(1 + name.length, gt);
+    let body = "";
+    let end = gt + 1;
+    if (!head.trimEnd().endsWith("/")) {
+      const close = `</${name}>`;
+      const i = this.buf.indexOf(close, end);
+      if (i < 0) return null;
+      body = this.buf.slice(end, i).trim();
+      end = i + close.length;
+    }
+    const text = this.buf.slice(0, end);
+    this.buf = this.buf.slice(end);
+    return { kind: "action", name, attrs: attrs(head), body, text };
+  }
+
   end(): ParsedEvent[] {
     const out: ParsedEvent[] = [];
-    if (this.section === "say" && (this.pending + this.buf).trim()) out.push({ kind: "sentence", text: (this.pending + this.buf).trim() });
-    else if (this.section === "screen" && this.buf) out.push({ kind: "screen", text: this.buf });
+    const tail = (this.pending + this.buf).trim();
+    if ((this.section === "say" || this.section === "question") && tail) {
+      out.push({ kind: "sentence", text: tail });
+      if (this.section === "question") out.push({ kind: "question", text: (this.question + this.buf).replace(/\s+/g, " ").trim() });
+    } else if (this.section === "screen" && this.buf) out.push({ kind: "screen", text: this.buf });
     else if (this.section === "none" && this.buf) this.outside += this.buf;
     if (!this.sawSay && this.outside.trim()) out.push({ kind: "fallback", text: this.outside });
     return out;

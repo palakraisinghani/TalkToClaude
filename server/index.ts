@@ -1,6 +1,7 @@
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +9,8 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { Auth } from "./auth.ts";
 import { Call } from "./call.ts";
 import { ensureCert, localAddresses, multiplex } from "./tls.ts";
-import { CENTRAL, CENTRAL_NAME } from "./identity.ts";
-import { loadProjects } from "./projects.ts";
+import { CENTRAL, CENTRAL_ID, CENTRAL_NAME } from "./identity.ts";
+import { loadProjects, loadSaved, type ProjectConfig } from "./projects.ts";
 import { MoonshineSTT } from "./stt.ts";
 import type { Mode, Rewriter } from "./types.ts";
 
@@ -17,6 +18,9 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const webDir = join(root, "web");
 const workDir = resolve(process.env.BUDDY_CWD ?? join(root, "session"));
 const callsDir = resolve(process.env.BUDDY_CALLS_DIR ?? join(root, "calls"));
+// the central agent's home: new projects are made here, and the roster is remembered here
+const homeDir = resolve((process.env.BUDDY_HOME ?? "~/buddy-home").replace(/^~(?=$|\/)/, homedir()));
+const rosterFile = join(homeDir, ".buddy", "roster.json");
 const PORT = Number(process.env.PORT ?? 3000);
 // localhost only unless you say otherwise: reaching Buddy is as good as a shell on this machine
 const HOST = process.env.BUDDY_HOST ?? "127.0.0.1";
@@ -38,11 +42,30 @@ const systemPrompt = ["VOICE.md", "examples.md", "condensation.md"]
   .map((f) => readFileSync(join(root, "skill", "claude-call", f), "utf8"))
   .join("\n\n");
 
+const centralPrompt = readFileSync(join(root, "skill", "claude-call", "CENTRAL.md"), "utf8")
+  .replaceAll("{{NAME}}", CENTRAL_NAME)
+  .replaceAll("{{HOME}}", homeDir);
+
 const rewriter: Rewriter = { toSpeech: async (x) => x };
 
-const projects = await loadProjects(root, workDir);
-// a project's directory must exist before Claude can be spawned in it
-await Promise.all(projects.map((p) => mkdir(p.dir, { recursive: true })));
+/**
+ * The roster for a call: configured projects, then the ones opened in earlier calls. Read fresh
+ * for each call, so a project made in one call is there in the next. A remembered folder that
+ * has since been deleted is dropped rather than quietly made again.
+ */
+async function roster(): Promise<ProjectConfig[]> {
+  const saved = [];
+  for (const s of await loadSaved(rosterFile)) {
+    if (await stat(s.dir).then((x) => x.isDirectory(), () => false)) saved.push(s);
+  }
+  const list = await loadProjects(root, workDir, saved);
+  // a configured project's directory must exist before Claude can be spawned in it
+  await Promise.all(list.map((p) => mkdir(p.dir, { recursive: true })));
+  return list;
+}
+
+await mkdir(homeDir, { recursive: true });
+const projects = await roster();
 
 let sttState: "loading" | "ready" | "error" = "loading";
 const stt = new MoonshineSTT();
@@ -112,7 +135,7 @@ wss.on("connection", (ws: WebSocket) => {
   sockets.add(ws);
   const send = (m: Record<string, any>) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
   send({ type: "stt", state: sttState });
-  send({ type: "central", identity: CENTRAL, name: CENTRAL_NAME });
+  send({ type: "central", identity: CENTRAL, name: CENTRAL_NAME, id: CENTRAL_ID, home: homeDir });
 
   let mode: Mode = "visual";
   let call: Call | null = null;
@@ -148,7 +171,7 @@ wss.on("connection", (ws: WebSocket) => {
     switch (m.type) {
       case "call-start":
         if (!call) {
-          call = new Call({ projects, systemPrompt, callsDir, rewriter, send, appRoot: root });
+          call = new Call({ projects: await roster(), home: homeDir, systemPrompt, centralPrompt, callsDir, rosterFile, rewriter, send });
           call.setMode(mode);
           await call.start();
         }
@@ -162,22 +185,40 @@ wss.on("connection", (ws: WebSocket) => {
       case "focus":
         call?.focus(m.project ? String(m.project) : null);
         break;
+      case "tell":
+        if (typeof m.text === "string" && m.text.trim() && !call?.tell(String(m.project), m.text.trim())) {
+          send({ type: "error", project: m.project, text: "There is no project by that name to pass that on to." });
+        }
+        break;
       case "interrupt":
         call?.interrupt(m.project ? String(m.project) : undefined);
         break;
       case "grant":
-        if (!call?.grant(String(m.project), m.scope === "always" ? "always" : "once")) {
-          send({ type: "error", project: m.project, text: "There is nothing waiting for permission there." });
+        if (!call?.grant(String(m.project), m.scope === "always" ? "always" : "once", m.requestId ? String(m.requestId) : undefined)) {
+          send({ type: "note", project: m.project, text: "There is nothing waiting for permission there." });
         }
         break;
+      case "deny":
+        if (!call?.deny(String(m.project), m.requestId ? String(m.requestId) : undefined)) {
+          send({ type: "note", project: m.project, text: "There is nothing waiting for permission there." });
+        }
+        break;
+      case "create": {
+        const problem = await call?.create({
+          name: m.name ? String(m.name) : undefined,
+          folder: m.folder ? String(m.folder) : undefined,
+          path: m.path ? String(m.path) : undefined,
+          brief: m.brief ? String(m.brief) : undefined,
+          focus: !!m.focus,
+        });
+        if (problem) send({ type: "note", text: problem, problem: true });
+        break;
+      }
       case "park":
         call?.park(String(m.project));
         break;
-      case "open":
-        await call?.open(String(m.text ?? ""), { create: !!m.create, resume: m.resume, name: m.name });
-        break;
-      case "answer":
-        await call?.answer(m.choice === "resume" ? "resume" : "new", m.session ? String(m.session) : undefined);
+      case "remove":
+        call?.remove(String(m.project));
         break;
       case "call-end":
         endCall();
@@ -199,11 +240,12 @@ front.listen(...listenArgs, () => {
   console.log("  the code is asked for once per device and is never part of the link");
   if (tls) console.log(`\n  the certificate is self-signed, so each device shows a warning once.\n  Accept it, or run: brew install mkcert && mkcert -install && mkcert localhost ${localAddresses().join(" ")}`);
   if (!onLan) console.log("\n  reachable from this machine only. BUDDY_HOST=0.0.0.0 opens it to your network.");
+  console.log(`\n  ${CENTRAL_NAME}, the central agent, works in ${homeDir}`);
   if (projects.length) {
-    console.log("\n  projects open at startup:");
+    console.log("\n  projects on the roster:");
     for (const p of projects) console.log(`  · ${p.name} → ${p.dir} (${p.permissionMode} on the line, ${p.backgroundPermissionMode} in the background)`);
   } else {
-    console.log(`\n  no projects yet — ask ${CENTRAL_NAME} to open one: "${CENTRAL_NAME}, open <folder>"`);
+    console.log(`\n  no projects yet — ask ${CENTRAL_NAME} to start one: "start a new project for a todo app"`);
   }
   console.log("");
 });

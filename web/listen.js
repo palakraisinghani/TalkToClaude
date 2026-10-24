@@ -2,8 +2,26 @@
 // over the whole utterance as audio; the server transcribes it. Falls back to Chrome's own
 // recognizer if the VAD cannot load.
 
-export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire, onLevel, processorType = "auto", audioContext }) {
+// How readily the mic decides you are talking. "low" is for a noisy room: a cough or a door is
+// less likely to count, at the cost of needing to speak up a little.
+export const SENSITIVITY = {
+  low: { positiveSpeechThreshold: 0.7, negativeSpeechThreshold: 0.5, minSpeechMs: 400 },
+  normal: { positiveSpeechThreshold: 0.55, negativeSpeechThreshold: 0.38, minSpeechMs: 300 },
+  high: { positiveSpeechThreshold: 0.42, negativeSpeechThreshold: 0.28, minSpeechMs: 220 },
+};
+// Silero v5 judges 512-sample frames at 16 kHz.
+const FRAME_MS = 32;
+
+export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire, onLevel, processorType = "auto", audioContext, sensitivity = "normal" }) {
   if (!window.vad) throw new Error("VAD library did not load");
+  let level = SENSITIVITY[sensitivity] ?? SENSITIVITY.normal;
+  let strict = false;
+  // how much of the current segment the detector was confident was a voice: a cough is loud but
+  // brief, a word is sustained, and this is what tells them apart once the transcript is back
+  let voicedFrames = 0;
+  const options = () => strict
+    ? { ...level, positiveSpeechThreshold: Math.min(0.9, level.positiveSpeechThreshold + 0.2), minSpeechMs: level.minSpeechMs + 150 }
+    : level;
   const vad = await window.vad.MicVAD.new({
     model: "v5",
     baseAssetPath: "/vendor/vad/",
@@ -14,15 +32,16 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
     getStream: () => navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     }),
-    positiveSpeechThreshold: 0.5,
-    negativeSpeechThreshold: 0.35,
+    ...level,
     redemptionMs: 900, // this much silence ends your turn; short pauses mid-sentence do not
     preSpeechPadMs: 400,
-    minSpeechMs: 250,
-    onSpeechStart,
-    onSpeechEnd: (audio) => onSpeechEnd(toInt16(audio)),
+    onSpeechStart: () => { voicedFrames = 0; onSpeechStart(); },
+    onSpeechEnd: (audio) => onSpeechEnd(toInt16(audio), voicedFrames * FRAME_MS),
     onVADMisfire: onMisfire,
-    onFrameProcessed: (p) => onLevel?.(p.isSpeech),
+    onFrameProcessed: (p) => {
+      if (p.isSpeech >= options().positiveSpeechThreshold) voicedFrames++;
+      onLevel?.(p.isSpeech);
+    },
   });
   return {
     kind: "vad",
@@ -30,7 +49,8 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
     pause: () => vad.pause(),
     destroy: () => vad.destroy(),
     /** Raise the bar while Buddy talks out of speakers so its own voice does not count as you. */
-    strict: (on) => vad.setOptions(on ? { positiveSpeechThreshold: 0.75, minSpeechMs: 400 } : { positiveSpeechThreshold: 0.5, minSpeechMs: 250 }),
+    strict: (on) => { if (on === strict) return; strict = on; vad.setOptions(options()); },
+    sensitivity: (name) => { level = SENSITIVITY[name] ?? SENSITIVITY.normal; vad.setOptions(options()); },
   };
 }
 
@@ -60,6 +80,7 @@ export function createChromeListener({ onSpeechStart, onText }) {
     pause: () => { on = false; try { r?.abort(); } catch {} },
     destroy: () => { on = false; clearInterval(watchdog); try { r?.abort(); } catch {} },
     strict: () => {},
+    sensitivity: () => {},
   };
 }
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_FILE, loadProjects, branchOf, projectFor } from "./projects.ts";
+import { CONFIG_FILE, loadProjects, loadSaved, saveRoster, branchOf, projectFor } from "./projects.ts";
 import { identityFor, poolSize, CENTRAL } from "./identity.ts";
 
 const withConfig = async (body: unknown) => {
@@ -22,7 +22,7 @@ test("a project made during a call is named after its folder", async () => {
   assert.equal(a.name, "Scraper");
   assert.equal(a.id, "scraper");
   assert.equal(a.dir, "/tmp/code/scraper");
-  assert.equal(a.backgroundPermissionMode, "manual");
+  assert.equal(a.backgroundPermissionMode, "auto");
   // a name already in use gets a digit, since names are matched from speech
   assert.equal(projectFor("/tmp/other/scraper", 1, ["scraper"]).name, "Scraper2");
   // and its identity follows its place in the roster
@@ -30,9 +30,9 @@ test("a project made during a call is named after its folder", async () => {
 });
 
 test("projects get names, ids and distinct identities", async () => {
-  const root = await withConfig({ projects: [{ name: "Ada", dir: "/tmp/api" }, { name: "Rex", dir: "/tmp/web" }] });
+  const root = await withConfig({ projects: [{ name: "Juno", dir: "/tmp/api" }, { name: "Rex", dir: "/tmp/web" }] });
   const ps = await loadProjects(root, "/tmp/x");
-  assert.deepEqual(ps.map((p) => p.id), ["ada", "rex"]);
+  assert.deepEqual(ps.map((p) => p.id), ["juno", "rex"]);
   assert.notEqual(ps[0].identity.voices[0], ps[1].identity.voices[0]);
   assert.notEqual(ps[0].identity.pan, ps[1].identity.pan);
   assert.notEqual(ps[0].identity.hue, ps[1].identity.hue);
@@ -40,15 +40,15 @@ test("projects get names, ids and distinct identities", async () => {
   for (const p of ps) assert.ok(!p.identity.voices.includes(CENTRAL.voices[0]));
 });
 
-test("background work is locked down by default, on-the-line work is not", async () => {
-  const root = await withConfig({ projects: [{ name: "Ada", dir: "/tmp/api" }] });
+test("every agent runs in auto mode by default, on the line or not", async () => {
+  const root = await withConfig({ projects: [{ name: "Juno", dir: "/tmp/api" }] });
   const [ada] = await loadProjects(root, "/tmp/x");
   assert.equal(ada.permissionMode, "auto");
-  assert.equal(ada.backgroundPermissionMode, "manual");
+  assert.equal(ada.backgroundPermissionMode, "auto");
 });
 
 test("explicit settings win, and nonsense falls back instead of throwing", async () => {
-  const root = await withConfig({ projects: [{ name: "Ada", dir: "/tmp/api", voice: "Fred", pan: 9, permissionMode: "nope", engagement: "delegate" }] });
+  const root = await withConfig({ projects: [{ name: "Juno", dir: "/tmp/api", voice: "Fred", pan: 9, permissionMode: "nope", engagement: "delegate" }] });
   const [ada] = await loadProjects(root, "/tmp/x");
   assert.equal(ada.identity.voices[0], "Fred");
   assert.equal(ada.identity.pan, 1); // clamped
@@ -57,9 +57,9 @@ test("explicit settings win, and nonsense falls back instead of throwing", async
 });
 
 test("duplicate names are made unique, because names are matched from speech", async () => {
-  const root = await withConfig({ projects: [{ name: "Ada", dir: "/a" }, { name: "Ada", dir: "/b" }] });
+  const root = await withConfig({ projects: [{ name: "Juno", dir: "/a" }, { name: "Juno", dir: "/b" }] });
   const ps = await loadProjects(root, "/tmp/x");
-  assert.deepEqual(ps.map((p) => p.name), ["Ada", "Ada2"]);
+  assert.deepEqual(ps.map((p) => p.name), ["Juno", "Juno2"]);
   assert.equal(new Set(ps.map((p) => p.id)).size, 2);
 });
 
@@ -81,4 +81,20 @@ test("identities stay distinct past the end of the pool", () => {
 
 test("a directory with no git repository reports no branch", async () => {
   assert.equal(await branchOf(await mkdtemp(join(tmpdir(), "buddy-nogit-"))), "");
+});
+
+test("no project can take the central agent's name", async () => {
+  const root = await withConfig({ projects: [{ name: "Ada", dir: "/tmp/api" }] });
+  const [p] = await loadProjects(root, "/tmp/x");
+  assert.equal(p.name, "Ada2");
+  assert.equal(projectFor("/tmp/code/ada", 0, []).name, "Ada2");
+});
+
+test("projects from earlier calls come back with their conversation, unless already listed", async () => {
+  const root = await withConfig({ projects: [{ name: "Rex", dir: "/tmp/web" }] });
+  const file = join(root, "roster.json");
+  await saveRoster(file, [{ name: "Juno", dir: "/tmp/todo", sessionId: "abc" }, { name: "Rex", dir: "/tmp/web", sessionId: "old" }]);
+  const ps = await loadProjects(root, "/tmp/x", await loadSaved(file));
+  assert.deepEqual(ps.map((p) => [p.name, p.resume]), [["Rex", undefined], ["Juno", "abc"]]);
+  assert.deepEqual(await loadSaved(join(root, "missing.json")), []);
 });

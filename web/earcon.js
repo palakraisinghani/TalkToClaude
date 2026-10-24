@@ -13,6 +13,7 @@ export class Earcons {
     this.ctx = ctx;
     this.gain = 0.09;
     this.enabled = true;
+    this.ringEnabled = true;
   }
 
   /** Play identity.earcon at identity.pan. Resolves when the motif has finished. */
@@ -44,5 +45,42 @@ export class Earcons {
       osc.stop(start + NOTE + 0.02);
     });
     await new Promise((r) => setTimeout(r, NOTE * 2 * 1000 + 30));
+  }
+
+  /**
+   * The notification ring: a soft, bell-like three-note chime that says "something is waiting
+   * for you" without saying what. It is played the moment news arrives, even mid-conversation,
+   * and is deliberately unlike any earcon so it is never mistaken for someone about to speak.
+   */
+  async ring(identity = null) {
+    const ctx = this.ctx;
+    if (!this.ringEnabled || !ctx) return;
+    if (ctx.state === "suspended") { try { await ctx.resume(); } catch { return; } }
+    const t0 = ctx.currentTime + 0.01;
+    const out = ctx.createGain();
+    out.gain.value = 0.07;
+    // it comes from the side of the project with the news, so on headphones you know who before
+    // anyone says so
+    const panner = ctx.createStereoPanner?.();
+    if (panner) { panner.pan.value = Math.max(-1, Math.min(1, identity?.pan ?? 0)); out.connect(panner); panner.connect(ctx.destination); }
+    else out.connect(ctx.destination);
+    // a bell: a fundamental plus a quiet inharmonic partial, each with a long soft decay
+    [1318.5, 1568, 2093].forEach((hz, i) => {
+      const start = t0 + i * 0.13;
+      for (const [mult, level] of [[1, 1], [2.76, 0.18]]) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = hz * mult;
+        g.gain.setValueAtTime(0, start);
+        g.gain.linearRampToValueAtTime(level, start + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + 0.55);
+        osc.connect(g);
+        g.connect(out);
+        osc.start(start);
+        osc.stop(start + 0.6);
+      }
+    });
+    await new Promise((r) => setTimeout(r, 900));
   }
 }

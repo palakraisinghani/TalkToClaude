@@ -22,6 +22,8 @@ export interface Identity {
 
 /** Ada, the central voice: always present, never one of the projects. */
 export const CENTRAL_NAME = process.env.BUDDY_CENTRAL_NAME ?? "Ada";
+/** Her id on the wire. Reserved: no project can take it. */
+export const CENTRAL_ID = CENTRAL_NAME.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "central";
 
 export const CENTRAL: Identity = {
   voices: ["Samantha", "Microsoft Aria Online (Natural) - English (United States)", "Google US English"],

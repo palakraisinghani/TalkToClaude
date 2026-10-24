@@ -35,6 +35,30 @@ test("falls back when there is no say block", () => {
   assert.deepEqual(of(ev, "fallback"), ["Just plain text."]);
 });
 
+test("action tags arrive whole, with attributes and body, and are never spoken", () => {
+  const ev = run('<say>Setting it up.</say>\n<new name="Juno" folder="todo-app">Scaffold a todo app.</new>\n<switch to="rex"/>', 2);
+  assert.deepEqual(of(ev, "sentence"), ["Setting it up."]);
+  const actions = ev.filter((e) => e.kind === "action") as any[];
+  assert.deepEqual(actions.map((a) => [a.name, a.attrs, a.body]), [
+    ["new", { name: "Juno", folder: "todo-app" }, "Scaffold a todo app."],
+    ["switch", { to: "rex" }, ""],
+  ]);
+  assert.doesNotMatch(of(ev, "aside").join(""), /<new|<switch/);
+});
+
+test("a question is spoken and also reported whole", () => {
+  const ev = run("<question>Postgres or SQLite? I lean SQLite.</question>", 3);
+  assert.deepEqual(of(ev, "sentence"), ["Postgres or SQLite?", "I lean SQLite."]);
+  assert.deepEqual(of(ev, "question"), ["Postgres or SQLite? I lean SQLite."]);
+  assert.equal(of(ev, "fallback").length, 0);
+});
+
+test("words that merely start like a tag stay in the notes", () => {
+  const ev = run("a <newline> and <opening\n<say>Ok.</say>", 2);
+  assert.equal(ev.filter((e) => e.kind === "action").length, 0);
+  assert.match(of(ev, "aside").join(""), /<newline> and <opening/);
+});
+
 test("cleaner", () => {
   assert.equal(clean("See `src/middleware/auth.ts` -> it can't use getUserById & more"), "See auth dot ts to it cannot use get User By Id and more");
   assert.equal(clean("Visit https://x.com now"), "Visit a link now");

@@ -57,6 +57,15 @@ export class Voice {
     return identities.filter((i) => !(i.voices ?? []).some((n) => this.voices.some((v) => v.name === n || v.name.includes(n))));
   }
 
+  /**
+   * Safari only lets speech start inside a click. Speaking nothing, synchronously in the call
+   * button's handler, unlocks it for the rest of the page's life, so speech that starts later —
+   * after an earcon, or when news arrives — is still allowed.
+   */
+  unlock() {
+    try { speechSynthesis.speak(new SpeechSynthesisUtterance("")); } catch {}
+  }
+
   get busy() { return !!this.current || this.queue.length > 0; }
   get speaking() { return !!this.current; }
 
