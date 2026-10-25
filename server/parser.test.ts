@@ -59,6 +59,12 @@ test("words that merely start like a tag stay in the notes", () => {
   assert.match(of(ev, "aside").join(""), /<newline> and <opening/);
 });
 
+test("a full stop at the end of a streamed chunk does not split a word like plan.md", () => {
+  const p = new ReplyParser();
+  const ev = [...p.feed("<say>I wrote plan."), ...p.feed("md with five steps. Done"), ...p.feed("</say>"), ...p.end()];
+  assert.deepEqual(of(ev, "sentence"), ["I wrote plan.md with five steps.", "Done"]);
+});
+
 test("cleaner", () => {
   assert.equal(clean("See `src/middleware/auth.ts` -> it can't use getUserById & more"), "See auth dot ts to it cannot use get User By Id and more");
   assert.equal(clean("Visit https://x.com now"), "Visit a link now");

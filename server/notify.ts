@@ -15,6 +15,8 @@ export interface Notification {
   kind: NotifyKind;
   text: string; // the line the central voice says
   detail: string; // the longer version for the panel
+  /** Everything the agent said in that turn, uncut, read out if the lead asks for more. */
+  full?: string;
   at: number;
 }
 
@@ -96,7 +98,7 @@ export function sayable(text: string, max = 240): string {
   return cut.replace(/[\s,;:—-]+\S*$/, "").replace(/[,;:—-]+$/, "") + ".";
 }
 
-export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string } = {}): Notification {
+export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string; full?: string } = {}): Notification {
   const summary = summarise(info.said ?? []);
   let text: string;
   let detail: string;
@@ -119,7 +121,9 @@ export function notification(kind: NotifyKind, name: string, project: string, in
     text = summary ? `${name} has finished. ${summary}` : `${name} has finished.`;
     detail = summary;
   }
-  return { project, name, kind, text, detail, at: Date.now() };
+  // everything the agent said in that turn, for when the lead asks for the full version
+  const full = kind === "finished" || kind === "failed" ? (info.full ?? (info.said ?? []).join(" ")).trim() : "";
+  return { project, name, kind, text, detail, full, at: Date.now() };
 }
 
 /**

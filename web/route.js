@@ -23,17 +23,19 @@ const STATUS = /^(status|status report|roll call|everyone|where are we|what'?s? 
 const STOP_ALL = /^(stop everyone|stop everything|everyone stop|stop all)$/;
 export const STANDUP = /^(stand ?up|stand-up|team (update|updates|meeting)|everyone report|round the table|go round the table|daily stand ?up)$/;
 export const UPDATES = /^(updates?|any updates|what did i miss|what'?s new|notifications?|read (me )?(the )?(updates|notifications)|tell me now|what'?s waiting|who'?s waiting|who is waiting|what is waiting|bring (them|it|those) up|go through (them|the queue)|what do they need|who needs me|anyone waiting|is anyone waiting)$/;
+// the whole of something that was summed up short: the news just read, or the agent's last answer
+export const MORE = /^(tell me more|more|more detail|more details|go on with that|in full|in detail|the whole thing|all of it|say all of it|read (it|me) all|read (it|me) everything|(the |give me the |i want the )?full (version|report|summary|details|story)|give me (a |the )?full summary|full summary please|what else did (he|she|it|they) say|tell me everything|walk me through it)$/;
 export const NEXT = /^(next|who'?s next|next please|next person|what'?s next|take me to the next|go to the next)$/;
 export const HOLD = /^(hold (my|all|the) calls|do not disturb|don'?t disturb me|no interruptions|focus mode|quiet please|hold everything)$/;
 export const UNHOLD = /^(i'?m free|i am free|take calls|resume calls|you can interrupt( me)?|calls back on|i'?m back|interrupt me again)$/;
 
 /** Patterns handled entirely on the page. Matched before the echo guard, so they never vanish. */
-export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL, UPDATES, STANDUP, NEXT, HOLD, UNHOLD];
+export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL, UPDATES, STANDUP, NEXT, HOLD, UNHOLD, MORE];
 
 const LOCAL_KINDS = [
   [PAUSE, "pause"], [RESUME, "resume"], [STOP, "stop"], [SLEEP, "sleep"],
   [REPEAT, "repeat"], [AUDIO, "audio"], [VISUAL, "visual"], [SHORTER, "shorter"],
-  [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [HOLD, "hold"], [UNHOLD, "unhold"],
+  [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [MORE, "more"], [HOLD, "hold"], [UNHOLD, "unhold"],
 ];
 
 const TAKE = /\b(?:take me (?:over )?to|put me (?:through|over) to|switch me (?:over )?to|connect me (?:to|with)|let me (?:talk|speak) (?:to|with)|i (?:want|need|would like|'?d like) to (?:talk|speak) (?:to|with)|can i (?:talk|speak) (?:to|with)|go back to|back over to|over to) (\w+)\b/;

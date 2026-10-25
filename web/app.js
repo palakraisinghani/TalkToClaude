@@ -60,6 +60,7 @@ let talkingId = null; // whose voice is coming out right now
 const activity = new Map(); // agent id -> { text, live } — for the screen; may be clipped
 const lastSaid = new Map(); // agent id -> its last whole spoken sentence — safe to say aloud
 const heardAt = new Map(); // agent id -> when the lead last heard its report, so it is not repeated
+let lastNews = null; // the news item read out most recently, kept whole for "tell me more"
 const pipeline = new Map(); // new agent id -> { step, at }: seated, briefed, working, reported
 const STEPS = ["seated", "briefed", "working", "reported"];
 let filter = "all";
@@ -424,7 +425,7 @@ function obey(result) {
   let passthrough = false;
   for (const a of result.actions) {
     if (a.type === "passthrough") passthrough = true;
-    else if (a.type === "dismiss") { heardAt.set(a.item.project, Date.now()); removeItem(a.item); }
+    else if (a.type === "dismiss") { heardAt.set(a.item.project, Date.now()); lastNews = { ...a.item, heardAt: Date.now() }; removeItem(a.item); }
     else if (a.type === "focus") { quietHandover = a.project; voice.clear(); send({ type: "focus", project: a.project }); }
     else settle(a.item, a);
   }
@@ -471,6 +472,27 @@ function focusOn(id) {
   voice.clear();
   userPaused = false;
   send({ type: "focus", project: id });
+}
+
+/**
+ * "Tell me more", "give me the full summary". Calls are short by default, so news is read as one
+ * line; this is the way to the whole of it. Just after a piece of news, it is that agent's full
+ * report, in its own voice, sentence by sentence. Otherwise whoever you are talking to is asked
+ * for the full version, and gives all of it — nothing on this path is clipped.
+ */
+function more() {
+  voice.clear();
+  userPaused = false;
+  const recent = lastNews && Date.now() - lastNews.heardAt < 10 * 60_000 && lastNews.full && lastNews.full.length > lastNews.text.length - 10;
+  if (recent && (!focusedId || focusedId === centralId || focusedId === lastNews.project)) {
+    const p = project(lastNews.project);
+    for (const s of lastNews.full.match(/[^.!?]+[.!?]+["')\]]*|\S[^.!?]*$/g) ?? [lastNews.full]) {
+      voice.say(s.trim(), 0, { identity: p?.identity ?? identityOf(lastNews.project), speaker: lastNews.project });
+    }
+    lastNews = null;
+    return;
+  }
+  ask("Give me the full summary of that, in as much detail as it needs.", "tell me more");
 }
 
 /** Stand-up: once round the table, each agent in its own voice with its own latest line. */
@@ -834,6 +856,7 @@ function local(name) {
       render();
       return;
     case "standup": return standup();
+    case "more": return more();
     case "repeat": {
       voice.clear();
       userPaused = false;

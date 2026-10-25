@@ -110,3 +110,7 @@ test("calling someone by name wins over whoever has the line", () => {
   assert.equal(route("hey can you get me the logs", Q).kind, "ask");
   assert.equal(route("take me to the docs folder", Q).kind, "ask");
 });
+
+test("asking for the full version is a page command", () => {
+  for (const s of ["tell me more", "Give me the full summary.", "full report", "walk me through it"]) assert.deepEqual(route(s, P), { kind: "local", name: "more" }, s);
+});

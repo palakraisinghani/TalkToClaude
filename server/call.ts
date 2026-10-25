@@ -3,7 +3,7 @@ import { CENTRAL, CENTRAL_ID, CENTRAL_NAME } from "./identity.ts";
 import { clean } from "./cleaner.ts";
 import { formatContext, type CallContext } from "./context.ts";
 import { narrate, toolDetail, toolLabel } from "./narration.ts";
-import { describeAction, notification, ruleFor, sayable, summarise, type Notification } from "./notify.ts";
+import { describeAction, notification, ruleFor, summarise, type Notification } from "./notify.ts";
 import { ReplyParser, type ParsedEvent } from "./parser.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,6 +49,8 @@ class Project {
   state: ProjectState = "cold";
   /** Sentences this project has produced in the running turn, for its own one-line report. */
   said: string[] = [];
+  /** What it said after its last tool call: its answer, which leads with the verdict. */
+  answer: string[] = [];
   /** The closing line of its last finished turn: what it would say if you asked how it is doing. */
   report = "";
   turn = 0;
@@ -195,6 +197,7 @@ export class Call {
     if (!queued) {
       // per-turn state belongs to the running turn until it ends; a queued message must not wipe it
       p.said = [];
+      p.answer = [];
       p.actions = [];
       p.lastSpokeAt = 0;
     }
@@ -236,7 +239,7 @@ export class Call {
       `[A side question from the lead, said out loud while you keep working. Do not stop your work.]`,
       text,
       ``,
-      `Reply in one to three short spoken sentences: plain words, no markdown, no code, no file paths.`,
+      `Reply in one to three short spoken sentences: plain words, no markdown, no code, no file paths. If the lead asks for a full summary or for detail, give all of it instead, still in short spoken sentences.`,
       `If answering properly needs you to do or change something — run a command, edit a file, start new work — reply with exactly "QUEUE:" followed by a few words saying you will do it as soon as your current task is done.`,
     ].join("\n");
     let answer = "";
@@ -255,7 +258,8 @@ export class Call {
       // new work: it waits behind the current task, nothing is interrupted
       this.ask(id, text, { kind: "followup", working: true, queued: true }, { keepFocus: true, queue: true });
     }
-    const spoken = sayable(clean(queued ? queued[1].trim() || "I'll do that as soon as I've finished this." : answer, this.mode), 400);
+    // not clipped: a short answer is short anyway, and a full summary the lead asked for is wanted whole
+    const spoken = clean(queued ? queued[1].trim() || "I'll do that as soon as I've finished this." : answer, this.mode);
     if (spoken) this.emit(p, { type: "btw", project: id, turn, phase: "answer", text: spoken, queued: !!queued || undefined, spoken: this.focused === id });
   }
 
@@ -618,6 +622,7 @@ export class Call {
     const s = clean(await this.opts.rewriter.toSpeech(text), this.mode);
     if (!s) return;
     p.said.push(s);
+    p.answer.push(s);
     p.lastSpokeAt = Date.now();
     clearTimeout(p.filler);
     // the page decides whether this is spoken: only the agent on the line has a voice
@@ -659,6 +664,7 @@ export class Call {
         this.emit(p, { type: "thinking", project: id, turn, text: ev.text });
         break;
       case "tool": {
+        p.answer = []; // still working: what it says next is the answer
         this.emit(p, { type: "tool", project: id, turn, id: ev.id, label: toolLabel(ev.name, ev.input), detail: toolDetail(ev.name, ev.input) });
         const n = narrate(ev.name, ev.input);
         if (onLine && n && Date.now() - p.lastSpokeAt > NARRATE_GAP_MS) {
@@ -713,7 +719,8 @@ export class Call {
         if (!ev.interrupted) await this.parsed(p, turn, p.parserFor(turn).end());
         p.parsers.delete(turn);
         p.turnsDone++;
-        if (!ev.interrupted) p.report = summarise(p.said) || p.report;
+        // the one-line report is the opening of its final answer — the verdict — not its last line
+        if (!ev.interrupted) p.report = (p.answer.length ? summarise([p.answer[0]]) : summarise(p.said)) || p.report;
         // a background turn that ends on a question is a question, tagged or not
         if (!onLine && !ev.interrupted && !p.pendingQuestion && !p.central && /\?$/.test(p.report) && p.said.length) p.pendingQuestion = p.report;
         if (onLine) p.pendingQuestion = null; // asked out loud, to someone listening
@@ -728,12 +735,13 @@ export class Call {
         if (!onLine && !ev.interrupted) {
           if (p.pendingQuestion) this.queue({ ...notification("question", p.config.name, id, { question: p.pendingQuestion }), questionId: p.questionId } as any);
           // more work already queued behind this turn (a retry, a follow-up): not finished yet
-          else if (!p.session?.isBusy()) this.queue(notification("finished", p.config.name, id, { said: p.said }));
+          else if (!p.session?.isBusy()) this.queue(notification("finished", p.config.name, id, { said: [p.report], full: p.said.join(" ") }));
         }
         this.publish();
         const actions = p.actions;
         p.actions = [];
         p.said = []; // the next turn, queued or not, starts its own report
+        p.answer = [];
         if (p.central && !ev.interrupted && actions.length) await this.act(actions);
         break;
       }

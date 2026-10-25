@@ -51,13 +51,26 @@ export function clean(text: string, mode: Mode = "visual"): string {
 /** Split text into sentences; the trailing fragment is returned as rest. */
 export function splitSentences(text: string): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
-  const re = /[^.!?\n]+(?:[.!?]+|\n)(?=\s|$)/g;
+  // A sentence ends at punctuation followed by a space, or at a newline — never at the end of the
+  // text so far: while streaming, "plan." may be the start of "plan.md", and speaking it early
+  // chops the word in two. Punctuation inside a word ("plan.md", "3.5") stays inside the sentence.
+  // The scan is anchored, so nothing before a match is ever skipped; what is left over is spoken
+  // when the block closes.
   let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const s = m[0].trim();
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    let end = -1;
+    if (c === "\n") end = i + 1;
+    else if (".!?".includes(c)) {
+      let j = i;
+      while (j + 1 < text.length && ".!?".includes(text[j + 1])) j++;
+      if (j + 1 < text.length && /\s/.test(text[j + 1])) end = j + 1;
+      i = j;
+    }
+    if (end < 0) continue;
+    const s = text.slice(last, end).trim();
     if (s) sentences.push(s);
-    last = re.lastIndex;
+    last = end;
   }
   return { sentences, rest: text.slice(last) };
 }
