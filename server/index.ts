@@ -40,11 +40,6 @@ const systemPrompt = ["VOICE.md", "examples.md", "condensation.md"]
 
 const rewriter: Rewriter = { toSpeech: async (x) => x };
 
-// Last resort: something unexpected should be reported, never silently kill every call that
-// happens to be running. Anything that reaches here is a bug to fix, not a reason to go down.
-process.on("uncaughtException", (err) => console.error("Unhandled error (server kept running):", err));
-process.on("unhandledRejection", (err) => console.error("Unhandled rejection (server kept running):", err));
-
 const projects = await loadProjects(root, workDir);
 // a project's directory must exist before Claude can be spawned in it
 await Promise.all(projects.map((p) => mkdir(p.dir, { recursive: true })));
@@ -89,9 +84,6 @@ const front = secure && redirector ? multiplex(secure, redirector) : http;
  * The access code travels as a WebSocket subprotocol rather than in the URL, so it never lands
  * in browser history or a proxy log. Nothing behind this handshake is reachable without it.
  */
-/** Every call currently running, so shutting down can close their Claude processes. */
-const calls = new Set<Call>();
-
 const wss = new WebSocketServer({
   server: http,
   handleProtocols: (protocols: Set<string>) => {
@@ -129,9 +121,7 @@ wss.on("connection", (ws: WebSocket) => {
   const endCall = () => {
     const c = call;
     call = null;
-    if (!c) return;
-    calls.delete(c);
-    c.close().catch((e) => console.error(e));
+    c?.close().catch((e) => console.error(e));
   };
 
   ws.on("message", async (raw, isBinary) => {
@@ -139,15 +129,10 @@ wss.on("connection", (ws: WebSocket) => {
       const id = segmentId;
       segmentId = null;
       if (!id) return;
+      const buf = raw as Buffer;
+      const pcm = new Int16Array(buf.buffer, buf.byteOffset, Math.floor(buf.byteLength / 2));
+      const audio = Float32Array.from(pcm, (x) => x / 32768);
       try {
-        const buf = raw as Buffer;
-        // `ws` can hand back a Buffer that is a view into a pooled ArrayBuffer at an odd
-        // byteOffset, and Int16Array refuses any offset that is not a multiple of 2. Reading
-        // each sample through the Buffer API instead works at any offset or alignment, so a
-        // pooling detail on the wire can never take the whole server down with it.
-        const n = Math.floor(buf.byteLength / 2);
-        const audio = new Float32Array(n);
-        for (let i = 0; i < n; i++) audio[i] = buf.readInt16LE(i * 2) / 32768;
         const t = Date.now();
         const text = await stt.transcribe(audio);
         send({ type: "transcript", id, text, ms: Date.now() - t });
@@ -164,7 +149,6 @@ wss.on("connection", (ws: WebSocket) => {
       case "call-start":
         if (!call) {
           call = new Call({ projects, systemPrompt, callsDir, rewriter, send, appRoot: root });
-          calls.add(call);
           call.setMode(mode);
           await call.start();
         }
@@ -203,31 +187,6 @@ wss.on("connection", (ws: WebSocket) => {
 
   ws.on("close", () => { sockets.delete(ws); endCall(); });
 });
-
-/**
- * Ctrl+C has to take the Claude processes with it.
- *
- * Each call holds one `claude` process per project. If node simply dies they are reparented and
- * keep running, with nobody attached, no port to find them on and no obvious way to stop them —
- * which is how a call ends up alive for hours after everyone has walked away.
- */
-let shuttingDown = false;
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal as NodeJS.Signals, () => {
-    if (shuttingDown) process.exit(1); // a second Ctrl+C stops waiting and goes
-    shuttingDown = true;
-    process.stderr.write(`\nStopping Buddy: closing ${calls.size} call${calls.size === 1 ? "" : "s"}…\n`);
-    const closed = Promise.all([...calls].map((c) => c.close().catch(() => {})));
-    front.close();
-    for (const ws of sockets) { try { ws.close(1001, "server stopping"); } catch { /* already gone */ } }
-    const bail = setTimeout(() => { process.stderr.write("Gave up waiting; exiting.\n"); process.exit(0); }, 5000);
-    closed.then(() => {
-      clearTimeout(bail);
-      process.stderr.write("Stopped.\n");
-      process.exit(0);
-    });
-  });
-}
 
 // Listening on every interface means dual stack: binding 0.0.0.0 alone is IPv4 only, and macOS
 // resolves localhost to ::1 first, so the localhost URL would not answer.

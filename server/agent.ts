@@ -103,24 +103,12 @@ export class ClaudeSession implements Agent {
     this.write({ type: "control_request", request_id: `int-${this.active}`, request: { subtype: "interrupt" } });
   }
 
-  /**
-   * Shut the process down for good. Closing stdin is the polite way out; if it has not gone a
-   * second later it gets SIGTERM, and a second after that SIGKILL. Without the last step a stuck
-   * child outlives the server and keeps running in the background with nothing attached to it.
-   */
   close(): void {
     this.queue = [];
     const c = this.child;
     this.child = null;
-    if (!c) return;
-    c.stdin?.end();
-    const term = setTimeout(() => {
-      if (c.exitCode === null && !c.killed) c.kill("SIGTERM");
-      const hard = setTimeout(() => { if (c.exitCode === null) c.kill("SIGKILL"); }, 1000);
-      hard.unref?.();
-    }, 1000);
-    // unref so a shutting-down server is not held open waiting for these
-    term.unref?.();
+    c?.stdin?.end();
+    setTimeout(() => c?.kill(), 1000);
   }
 
   isBusy(): boolean {
