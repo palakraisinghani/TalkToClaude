@@ -186,6 +186,9 @@ wss.on("connection", (ws: WebSocket) => {
       case "focus":
         call?.focus(m.project ? String(m.project) : null);
         break;
+      case "btw":
+        if (typeof m.text === "string" && m.text.trim()) call?.btw(String(m.project ?? ""), m.text.trim()).catch((e) => console.error(e));
+        break;
       case "tell":
         if (typeof m.text === "string" && m.text.trim() && !call?.tell(String(m.project), m.text.trim())) {
           send({ type: "error", project: m.project, text: "There is no project by that name to pass that on to." });

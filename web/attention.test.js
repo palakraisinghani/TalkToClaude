@@ -109,3 +109,51 @@ test("short replies are recognised, longer speech is not mistaken for one", () =
   assert.equal(classify("yes and also run the tests"), null);
   assert.deepEqual(order([done, q, perm]).map((i) => i.uid), [1, 2, 3]);
 });
+
+test("yes and no, the way people actually say them", () => {
+  for (const t of ["Yes.", "Yeah, sure.", "Yes, tell me.", "Sure, go ahead.", "Okay, what is it?", "Alright.", "Mm-hmm.", "Uh huh", "yeah go on", "Okay sounds good"]) assert.equal(classify(t), "yes", t);
+  for (const t of ["No.", "Nope.", "No thanks.", "No, don't."]) assert.equal(classify(t), "no", t);
+  assert.equal(classify("No, not now."), "later");
+  assert.equal(classify("yes always"), "always");
+  // a yes that goes on to say something else is not a bare yes
+  for (const t of ["Yes, and also run the tests", "okay so what is Rex doing", "sure can you add a README"]) assert.equal(classify(t), null, t);
+});
+
+test("after a heads-up, a casual yes reads the news instead of going to whoever has the floor", () => {
+  const h = headsUp(createAttention(), [done], T);
+  const r = heard(h.state, "Yeah, sure.", [done], T + 1500);
+  assert.ok(!r.actions.some((a) => a.type === "passthrough"));
+  assert.deepEqual(r.say, ["Iris has finished. The login page works.", "That's everything."]);
+});
+
+test("a question's answer can be a plain yes or no", () => {
+  const r1 = review(createAttention(), [q], T);
+  const r2 = heard(r1.state, "Yes.", [q], T + 2000);
+  assert.deepEqual(r2.actions.map((a) => [a.type, a.text]), [["tell", "Yes."]]);
+});
+
+test("the window stays open while the lead is still answering", () => {
+  const r1 = review(createAttention(), [q], T);
+  const s = tick(r1.state, T + 60_000, { speaking: false, hearing: true });
+  assert.equal(s.mode, "awaiting");
+});
+
+test("a heads-up talked over is offered again later, not lost", () => {
+  const h = headsUp(createAttention(), [q], T);
+  const over = heard(h.state, "What is the capital of France?", [q], T + 500);
+  assert.deepEqual(types(over), ["passthrough"]);
+  const ctx = { quietMs: QUIET_MS, voiceIdle: true, hearing: false };
+  assert.equal(wantsHeadsUp(over.state, [q], { ...ctx, now: T + 10_000 }), false, "not straight away");
+  assert.equal(wantsHeadsUp(over.state, [q], { ...ctx, now: T + 31_000 }), true, "offered again after a gap");
+});
+
+test("a late yes still answers the heads-up, unless the agent on the floor has spoken since", () => {
+  const h = headsUp(createAttention(), [q], T);
+  const over = heard(h.state, "What is the capital of France?", [q], T + 500);
+  const late = heard(over.state, "Yeah, sure.", [q], T + 2000);
+  assert.equal(late.state.mode, "awaiting", "goes into the review");
+  assert.equal(late.state.item.uid, 2);
+  const spoke = { ...over.state, floorSpoke: true };
+  assert.deepEqual(types(heard(spoke, "Yeah, sure.", [q], T + 2000)), ["passthrough"], "a yes after Milo spoke is Milo's");
+  assert.deepEqual(types(heard(over.state, "Yeah, sure.", [q], T + 25_000)), ["passthrough"], "too late");
+});

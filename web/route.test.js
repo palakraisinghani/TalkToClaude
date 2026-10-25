@@ -97,3 +97,16 @@ test("bye ends the call from anywhere", () => {
   for (const s of ["Bye.", "goodbye", "bye bye", "okay, bye", "hang up", "end the call"]) assert.deepEqual(route(s, P), { kind: "local", name: "sleep" }, s);
   assert.equal(route("bye the way, run the tests", P).kind, "ask");
 });
+
+test("calling someone by name wins over whoever has the line", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "milo", name: "Milo" }, { id: "juno", name: "Juno" }];
+  assert.deepEqual(route("Hi Ada, can you take me to Juno?", Q), { kind: "focus", project: "juno" });
+  assert.deepEqual(route("hey ada what is milo doing", Q), { kind: "address", project: "ada", text: "what is milo doing" });
+  assert.deepEqual(route("Okay Aida, start a new project", Q), { kind: "address", project: "ada", text: "start a new project" });
+  assert.deepEqual(route("hey Ada", Q), { kind: "focus", project: "ada" });
+  assert.deepEqual(route("can you take me to Juno", Q), { kind: "focus", project: "juno" });
+  assert.deepEqual(route("let me talk to milo", Q), { kind: "focus", project: "milo" });
+  // no name, nothing redirected
+  assert.equal(route("hey can you get me the logs", Q).kind, "ask");
+  assert.equal(route("take me to the docs folder", Q).kind, "ask");
+});

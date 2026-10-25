@@ -21,6 +21,10 @@ export const WINDOW_MS = 8000;
 export const QUIET_MS = 4000;
 /** A heads-up about the same items is repeated no more often than this. */
 export const REPEAT_MS = 5 * 60_000;
+/** Heads-ups are never closer together than this, even for something new. */
+export const GAP_MS = 30_000;
+/** A "yes" this soon after a heads-up still answers it, unless someone else has spoken since. */
+export const LATE_MS = 20_000;
 
 const BLOCKING = new Set(["permission", "question"]);
 const RANK = { permission: 0, question: 1, blocked: 2, failed: 3, finished: 4 };
@@ -34,15 +38,30 @@ const SKIP = /^(skip|skip it|skip that|pass|next one|move on|never mind|nevermin
 const LATER = /^(later|not now|leave it|after|in a bit|hold that|save it|no not now|not yet|maybe later)$/;
 const TAKE = /^(take me (there|to (him|her|them|it))|put me through|go there|let me talk to (him|her|them|it)|talk to (him|her|them|it))$/;
 
+// How people actually say yes and no out loud: "yeah, sure", "okay, what is it?", "mm-hmm",
+// "sure, go ahead", "no thanks". A short reply that starts like one of these is one, so long as
+// it does not go on to say something else ("yes, and also run the tests" is not a bare yes).
+const YES_LEAD = /^(yes|yeah|yea|yep|yup|ya|sure|ok|okay|alright|all right|right|fine|go ahead|go on|please|definitely|absolutely|of course|mm hmm|mhm|uh huh|tell me|read it|let's hear|lets hear|what is it|what's up|what does (he|she|it|they) want|what do (they|you) need)\b/;
+const NO_LEAD = /^(no|nope|nah|deny|don't|dont|do not|refuse|never)\b/;
+const FILLER_WORDS = new Set(["yes", "yeah", "yea", "yep", "yup", "ya", "sure", "ok", "okay", "alright", "all", "right", "fine", "go", "ahead", "on", "please", "definitely", "absolutely", "of", "course", "mm", "hmm", "mhm", "uh", "huh", "tell", "me", "read", "it", "let's", "lets", "hear", "what", "is", "what's", "up", "does", "do", "he", "she", "they", "want", "need", "you", "thanks", "thank", "no", "nope", "nah", "deny", "don't", "dont", "not", "refuse", "never", "that", "this", "one", "then", "so", "well", "oh", "um", "the", "a", "just", "now", "sounds", "good", "great", "cool"]);
+
 /** What a short reply means, if it is one of the words the assistant listens for. */
 export function classify(text) {
-  const t = norm(text).replace(/^(um|uh|hmm|so|well|oh) /, "");
-  if (ALWAYS.test(t)) return "always";
+  const raw = norm(text);
+  if (/^(uh huh|mm hmm|mhm|uh hm)$/.test(raw)) return "yes";
+  const t = raw.replace(/^((um|uh|hmm|so|well|oh|and|ah)\s+)+/, "");
+  if (!t) return null;
+  if (ALWAYS.test(t) || /^(yes|yeah|sure|ok|okay)\b.*\b(always|every time|from now on)$/.test(t)) return "always";
+  if (LATER.test(t)) return "later";
+  if (SKIP.test(t)) return "skip";
+  if (TAKE.test(t)) return "take";
   if (YES.test(t)) return "yes";
   if (NO.test(t)) return "no";
-  if (SKIP.test(t)) return "skip";
-  if (LATER.test(t)) return "later";
-  if (TAKE.test(t)) return "take";
+  // loose: a short reply made only of yes-or-no words
+  const words = t.split(" ");
+  const plain = words.length <= 6 && words.every((w) => FILLER_WORDS.has(w));
+  if (plain && YES_LEAD.test(t) && !/\b(no|not|don't|dont|never)\b/.test(t)) return "yes";
+  if (plain && NO_LEAD.test(t)) return "no";
   return null;
 }
 
@@ -52,7 +71,8 @@ export function order(items) {
 }
 
 export function createAttention() {
-  return { mode: "normal", item: null, until: 0, hold: false, announced: new Set(), lastHeadsUp: 0, skipped: new Set() };
+  // floorSpoke: the agent the lead is talking to has spoken since the last heads-up
+  return { mode: "normal", item: null, until: 0, hold: false, announced: new Set(), lastHeadsUp: 0, offered: [], floorSpoke: false, skipped: new Set() };
 }
 
 const list = (names) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
@@ -74,12 +94,12 @@ export function headsUpLine(items) {
 export function wantsHeadsUp(state, items, { now, quietMs, voiceIdle, hearing }) {
   if (state.hold || state.mode !== "normal" || !voiceIdle || hearing || quietMs < QUIET_MS || !items.length) return false;
   const fresh = items.some((i) => !state.announced.has(i.uid));
-  return fresh || now - state.lastHeadsUp > REPEAT_MS;
+  return (fresh && now - state.lastHeadsUp > GAP_MS) || now - state.lastHeadsUp > REPEAT_MS;
 }
 
 /** Say the heads-up and wait briefly for a yes. */
 export function headsUp(state, items, now) {
-  const s = { ...state, mode: "headsUp", item: null, until: now + WINDOW_MS, lastHeadsUp: now, announced: new Set(state.announced) };
+  const s = { ...state, mode: "headsUp", item: null, until: now + WINDOW_MS, lastHeadsUp: now, offered: items.map((i) => i.uid), floorSpoke: false, announced: new Set(state.announced) };
   for (const i of items) s.announced.add(i.uid);
   return { state: s, say: [headsUpLine(items)], actions: [] };
 }
@@ -90,7 +110,7 @@ function present(state, item, now) {
     return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS }, say: [`${item.text.replace(/\.$/, "")}. Allow?`], actions: [] };
   }
   if (item.kind === "question") {
-    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS * 2 }, say: [`${item.text.replace(/\s*$/, "")} What should I tell ${item.name}?`], actions: [] };
+    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS * 3 }, say: [`${item.text.replace(/\s*$/, "")} What should I tell ${item.name}?`], actions: [] };
   }
   return { state: { ...state, mode: "reviewing", item: null }, say: [item.text], actions: [{ type: "dismiss", item }] };
 }
@@ -144,7 +164,17 @@ export function heard(state, text, items, now) {
   if (state.mode === "headsUp") {
     if (live && word === "yes") return review({ ...state, mode: "normal" }, items, now);
     if (live && (word === "no" || word === "later")) return { state: { ...state, mode: "normal" }, say: ["Okay."], actions: [] };
-    return { state: { ...state, mode: "normal" }, say: [], actions: [{ type: "passthrough" }] };
+    // Talked straight over it, to someone else: that is not having heard it. Offer it again at
+    // the next quiet moment, rather than leaving it marked as told.
+    const announced = new Set(state.announced);
+    for (const uid of state.offered ?? []) announced.delete(uid);
+    return { state: { ...state, mode: "normal", announced }, say: [], actions: [{ type: "passthrough" }] };
+  }
+
+  // A yes that arrives a moment late — the lead finished a sentence to someone else first — still
+  // answers the heads-up, so long as nobody else has spoken since and it is still waiting.
+  if (state.mode === "normal" && word === "yes" && now - state.lastHeadsUp < LATE_MS && !state.floorSpoke && items.some((i) => (state.offered ?? []).includes(i.uid))) {
+    return review(state, items, now);
   }
 
   if (state.mode === "awaiting" && state.item) {
@@ -162,7 +192,8 @@ export function heard(state, text, items, now) {
       if (word === "always") return proceed(state, items, now, [`Allowed, and ${item.name} won't ask about that again.`], [{ type: "grant", item, scope: "always" }]);
       if (word === "no") return proceed(state, items, now, ["Denied."], [{ type: "deny", item }]);
     }
-    if (item.kind === "question" && live && word === null && norm(text).length > 1) {
+    // a question takes whatever is said as its answer, "yes" and "no" included
+    if (item.kind === "question" && live && norm(text).length > 1) {
       return proceed(state, items, now, [`Sent to ${item.name}.`], [{ type: "tell", item, text: text.trim() }]);
     }
     // anything else ends the review; the item stays in the queue, and the words go on as said
@@ -172,10 +203,13 @@ export function heard(state, text, items, now) {
   return { state, say: [], actions: [{ type: "passthrough" }] };
 }
 
-/** Let a window lapse once its time is up. Kept open while the assistant is still talking. */
-export function tick(state, now, { speaking }) {
+/**
+ * Let a window lapse once its time is up. Kept open while the assistant is still talking, and
+ * while the lead is speaking — someone halfway through their answer has not missed the window.
+ */
+export function tick(state, now, { speaking, hearing = false }) {
   if (state.mode !== "headsUp" && state.mode !== "awaiting") return state;
-  if (speaking) return { ...state, until: Math.max(state.until, now + WINDOW_MS) };
+  if (speaking || hearing) return { ...state, until: Math.max(state.until, now + WINDOW_MS) };
   if (now > state.until) return { ...state, mode: "normal", item: null, skipped: new Set() };
   return state;
 }

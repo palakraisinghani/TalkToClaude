@@ -197,7 +197,19 @@ export class Voice {
       c.said.text = c.text.slice(start, start + e.charIndex + (e.charLength || 0));
       this.onWord(c.text, start + e.charIndex, e.charLength || 0);
     };
+    // A watchdog: browsers sometimes never report the end of an utterance (Chrome drops onend
+    // now and then, and stalls on long ones). Left alone, the voice would stay "busy" forever,
+    // nothing else would ever be said, and the call would seem to hang. Allow generously for the
+    // length of the sentence, then move on.
+    const rate = u.rate || 1;
+    const budget = 4000 + (item.text.length - start) * 95 / rate;
+    c.watchdog = setTimeout(() => {
+      if (this.current !== c) return;
+      console.warn("speech never reported its end; moving on", c.text.slice(0, 60));
+      finish();
+    }, budget);
     const finish = () => {
+      clearTimeout(c.watchdog);
       if (this.current !== c) return; // cancelled by hold() or clear()
       this.#endUtterance(c, true);
       this.current = null;
@@ -207,6 +219,8 @@ export class Voice {
     u.onend = finish;
     u.onerror = finish;
     this.onSentence(c.text, start, c.record);
+    // a synthesiser left paused (Chrome does this after a tab sleeps) would take the utterance and never start it
+    if (speechSynthesis.paused) speechSynthesis.resume();
     speechSynthesis.speak(u);
   }
 

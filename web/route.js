@@ -36,6 +36,10 @@ const LOCAL_KINDS = [
   [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [HOLD, "hold"], [UNHOLD, "unhold"],
 ];
 
+const TAKE = /\b(?:take me (?:over )?to|put me (?:through|over) to|switch me (?:over )?to|connect me (?:to|with)|let me (?:talk|speak) (?:to|with)|i (?:want|need|would like|'?d like) to (?:talk|speak) (?:to|with)|can i (?:talk|speak) (?:to|with)|go back to|back over to|over to) (\w+)\b/;
+const GREETING = /^(?:(?:hi|hey|hello|okay|ok|so|um|uh|oh|yo|and|sorry|excuse me|right)\s+)+/;
+const GREETING_RAW = /^\W*(?:(?:hi|hey|hello|okay|ok|so|um|uh|oh|yo|and|sorry|excuse me|right)\b[\s,.!]*)+/i;
+
 /** One edit apart, for a bare name said on its own where a wrong guess costs nothing. */
 function near(a, b) {
   if (a === b) return true;
@@ -75,6 +79,28 @@ export function route(raw, projects, { waiting = null } = {}) {
   for (const [re, name] of LOCAL_KINDS) if (re.test(t)) return { kind: "local", name };
 
   const words = t.split(" ");
+
+  // "can you take me to Juno", "let me talk to Rex", "hi Ada, take me to Juno": moving the line is
+  // something the page can do at once, wherever in the sentence it is asked for and whoever is
+  // being spoken to. Only a real name counts, so "get me the logs" is left alone.
+  const take = TAKE.exec(t);
+  if (take) {
+    const target = findExact(projects, take[take.length - 1]) ?? findNear(projects, take[take.length - 1]);
+    if (target) return { kind: "focus", project: target.id };
+  }
+
+  // "hi Ada, what's Rex doing?", "okay Juno, run the tests": a greeting then a name is someone
+  // being addressed, and it wins over whoever has the line. A greeting makes the name a strong
+  // signal, so a near miss from the recognizer ("hey Aida") is forgiven here.
+  const greeted = t.replace(GREETING, "");
+  if (greeted !== t && greeted) {
+    const first = greeted.split(" ")[0];
+    const target = findExact(projects, first) ?? findNear(projects, first);
+    if (target) {
+      const rest = raw.trim().replace(GREETING_RAW, "").replace(/^[^\s,.:!?]+[\s,.:!?]*/, "").trim();
+      return rest ? { kind: "address", project: target.id, text: rest } : { kind: "focus", project: target.id };
+    }
+  }
 
   // "allow ada" / "allow it" / "allow ada always" — never "go ahead", which resumes the voice
   const permit = /^(allow|grant|approve|permit|let)( it| that| them)?$/.exec(words.slice(0, 2).join(" ")) || /^(allow|grant|approve|permit|let)$/.exec(words[0] ?? "");

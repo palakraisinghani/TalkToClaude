@@ -80,8 +80,20 @@ export function ruleFor(tool: string, input: any): string | null {
 export function summarise(said: string[]): string {
   const last = [...said].reverse().find((s) => s.trim());
   if (!last) return "";
-  const first = (last.match(/[^.!?]+[.!?]?/) ?? [last])[0].trim();
-  return first.length > 140 ? first.slice(0, 139) + "…" : first;
+  return sayable((last.match(/[^.!?]+[.!?]?/) ?? [last])[0].trim());
+}
+
+/**
+ * Shorten something that will be spoken. Cut at a sentence or a whole word, never mid-word, and
+ * never with an ellipsis: a voice reads "plu…" as "plu", which sounds like a glitch, not a pause.
+ */
+export function sayable(text: string, max = 240): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sentence = cut.match(/^.*[.!?](?=\s)/)?.[0];
+  if (sentence && sentence.length > max / 2) return sentence;
+  return cut.replace(/[\s,;:—-]+\S*$/, "").replace(/[,;:—-]+$/, "") + ".";
 }
 
 export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string } = {}): Notification {

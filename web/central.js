@@ -58,12 +58,13 @@ export class Central {
    * The handover when the floor moves: who you are now talking to, what they last did, and what
    * they are waiting on, in one breath. Back to the assistant herself is just a word.
    */
-  handover(p) {
+  handover(p, { heard = false } = {}) {
     if (!p || p.central) return this.say("Back with me.");
     const bits = [`${p.name}.`];
     if (p.state === "working") bits.push("Still working on it.");
-    else if (p.report) bits.push(p.report.replace(/([^.!?])$/, "$1."));
-    else if (p.state === "cold") bits.push("Just starting up.");
+    // a report the lead has just heard is not repeated; they came here to follow it up
+    else if (p.report && !heard) bits.push(p.report.replace(/([^.!?])$/, "$1."));
+    else if (p.state === "cold" && !p.report) bits.push("Ready when you are.");
     this.say(bits.join(" "));
   }
 

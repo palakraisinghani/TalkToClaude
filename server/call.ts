@@ -3,7 +3,7 @@ import { CENTRAL, CENTRAL_ID, CENTRAL_NAME } from "./identity.ts";
 import { clean } from "./cleaner.ts";
 import { formatContext, type CallContext } from "./context.ts";
 import { narrate, toolDetail, toolLabel } from "./narration.ts";
-import { describeAction, notification, ruleFor, summarise, type Notification } from "./notify.ts";
+import { describeAction, notification, ruleFor, sayable, summarise, type Notification } from "./notify.ts";
 import { ReplyParser, type ParsedEvent } from "./parser.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -63,6 +63,8 @@ class Project {
   /** Identifies the pending question, so the page can tell when it has been answered. */
   questionId = "";
   questionAt = 0;
+  /** Side questions asked mid-task and their answers, so each one has the ones before it. */
+  btwHistory: { question: string; response: string }[] = [];
   /** Control tags the central agent wrote this turn, carried out once the turn ends. */
   actions: Action[] = [];
   branch = "";
@@ -154,6 +156,9 @@ export class Call {
       p.branch = await branchOf(p.config.dir);
     }));
     this.ensure(CENTRAL_ID);
+    // Warm the whole team now. Starting an agent's process takes seconds; doing it while the lead
+    // is still saying hello means the first thing they ask anyone is answered at full speed.
+    for (const id of this.order) this.ensure(id);
     this.publish();
   }
 
@@ -213,6 +218,45 @@ export class Call {
     }
     this.opts.send({ type: "turn", project: id, turn, text, background: !onLine || undefined, queued: queued || undefined, assigned: assigned || undefined });
     this.publish();
+  }
+
+  /**
+   * Something said to an agent that is busy. Rather than wait behind the work — which could be
+   * minutes — it goes in as a side question (Claude Code's /btw): answered in a second or two from
+   * what the agent already knows, while the work carries on. If it is really new work, the agent
+   * says so, and it is queued as a proper follow-up, with a spoken acknowledgement right away.
+   */
+  async btw(id: string, text: string): Promise<void> {
+    const p = this.projects.get(id);
+    if (!p) return;
+    if (!p.session?.isBusy()) return this.ask(id, text);
+    const turn = p.turn;
+    this.emit(p, { type: "btw", project: id, turn, phase: "asked", text });
+    const question = [
+      `[A side question from the lead, said out loud while you keep working. Do not stop your work.]`,
+      text,
+      ``,
+      `Reply in one to three short spoken sentences: plain words, no markdown, no code, no file paths.`,
+      `If answering properly needs you to do or change something — run a command, edit a file, start new work — reply with exactly "QUEUE:" followed by a few words saying you will do it as soon as your current task is done.`,
+    ].join("\n");
+    let answer = "";
+    try {
+      answer = await p.session.sideQuestion(question, p.btwHistory);
+    } catch (e: any) {
+      answer = "QUEUE: I'll get to that as soon as I've finished this.";
+      console.warn(`side question to ${p.config.name} failed: ${e.message}`);
+    }
+    // agents are used to wrapping speech in <say>: keep what is inside, drop any <screen> part
+    const said = [...answer.matchAll(/<say>([\s\S]*?)(?:<\/say>|$)/g)].map((m) => m[1].trim()).join(" ");
+    answer = (said || answer).replace(/<screen>[\s\S]*?(<\/screen>|$)/g, " ").replace(/<\/?[a-z]+>/g, " ").replace(/\s+/g, " ").trim();
+    p.btwHistory = [...p.btwHistory, { question: text, response: answer }].slice(-6);
+    const queued = /^\s*QUEUE:?\s*([\s\S]*)$/i.exec(answer);
+    if (queued) {
+      // new work: it waits behind the current task, nothing is interrupted
+      this.ask(id, text, { kind: "followup", working: true, queued: true }, { keepFocus: true, queue: true });
+    }
+    const spoken = sayable(clean(queued ? queued[1].trim() || "I'll do that as soon as I've finished this." : answer, this.mode), 400);
+    if (spoken) this.emit(p, { type: "btw", project: id, turn, phase: "answer", text: spoken, queued: !!queued || undefined, spoken: this.focused === id });
   }
 
   /** Something the person said for a project that is not on the line, passed on without moving it. */

@@ -31,6 +31,8 @@ export class ClaudeSession implements Agent {
   private toolInputs = new Map<string, unknown>();
   /** Rules the lead has allowed out loud, for this session only. */
   private allowed: string[] = [];
+  /** Control requests we sent and are waiting on an answer for. */
+  private waiting = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string }) {
     this.cwd = opts.cwd;
@@ -165,7 +167,24 @@ export class ClaudeSession implements Agent {
     this.write({ type: "control_request", request_id: `allow-${++this.controls}`, request: { subtype: "apply_flag_settings", settings: { permissions: { allow: this.allowed } } } });
   }
 
+  /**
+   * A side question — Claude Code's /btw. Answered from the conversation so far, with no tools,
+   * while the running turn carries on untouched. This is how the lead can ask an agent something
+   * mid-task without waiting for the task to finish, or stopping it.
+   */
+  sideQuestion(question: string, history: { question: string; response: string }[] = [], timeoutMs = 45_000): Promise<string> {
+    if (!this.child) return Promise.reject(new Error("the agent is not running"));
+    const id = `btw-${++this.controls}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.waiting.delete(id); reject(new Error("no answer in time")); }, timeoutMs);
+      this.waiting.set(id, { resolve: (r) => resolve(String(r?.response ?? "").trim()), reject, timer });
+      this.write({ type: "control_request", request_id: id, request: { subtype: "side_question", question, history } });
+    });
+  }
+
   close(): void {
+    for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(new Error("the agent was closed")); }
+    this.waiting.clear();
     this.queue = [];
     const c = this.child;
     this.child = null;
@@ -223,6 +242,14 @@ export class ClaudeSession implements Agent {
     }
     if (ev.type === "control_response") {
       const r = ev.response ?? {};
+      const w = this.waiting.get(String(r.request_id ?? ""));
+      if (w) {
+        this.waiting.delete(String(r.request_id));
+        clearTimeout(w.timer);
+        if (r.subtype === "success") w.resolve(r.response ?? {});
+        else w.reject(new Error(String(r.error ?? "the request failed")));
+        return;
+      }
       if (r.subtype === "error" && String(r.request_id ?? "").startsWith("allow-")) {
         this.emit(this.active, { kind: "error", message: `Could not allow that: ${r.error}` });
       }

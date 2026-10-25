@@ -23,8 +23,13 @@ test("tools become plain words", () => {
   assert.equal(permissionPhrase("Glob"), "use Glob");
 });
 
-test("a long closing sentence is cut to something sayable", () => {
-  assert.ok(summarise(["x".repeat(400) + "."]).length <= 140);
+test("a long closing sentence is cut to something sayable: whole words, no ellipsis", () => {
+  const long = "The plugin loads the config, " + "then checks every rule in turn ".repeat(12) + "and finally reports.";
+  const out = summarise([long]);
+  assert.ok(out.length <= 241, `${out.length}`);
+  assert.doesNotMatch(out, /…/);
+  assert.match(out, /\b(rule|turn|in|checks|every|then|reports)\.$/, "ends on a whole word");
+  assert.equal(summarise(["Short and sweet."]), "Short and sweet.");
 });
 
 test("several updates are batched, blocking ones first", () => {

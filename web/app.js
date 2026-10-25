@@ -57,7 +57,9 @@ let queueSeq = 0;
 let att = attention.createAttention();
 let quietHandover = null; // a focus change the assistant has already spoken for
 let talkingId = null; // whose voice is coming out right now
-const activity = new Map(); // agent id -> { text, live }
+const activity = new Map(); // agent id -> { text, live } — for the screen; may be clipped
+const lastSaid = new Map(); // agent id -> its last whole spoken sentence — safe to say aloud
+const heardAt = new Map(); // agent id -> when the lead last heard its report, so it is not repeated
 const pipeline = new Map(); // new agent id -> { step, at }: seated, briefed, working, reported
 const STEPS = ["seated", "briefed", "working", "reported"];
 let filter = "all";
@@ -397,6 +399,10 @@ function enqueue(m) {
   // the agent you are talking to just finished: that is not news, you were there
   if ((m.kind === "finished" || m.kind === "failed") && m.project === focusedId) return;
   const item = { ...m, uid: ++queueSeq, at: m.at ?? Date.now() };
+  // news replaces older news from the same agent: only its latest report is worth hearing
+  if (item.kind === "finished" || item.kind === "failed") {
+    for (const old of queue.filter((i) => i.project === item.project && (i.kind === "finished" || i.kind === "failed"))) removeItem(old);
+  }
   queue.push(item);
   feedNote(`${m.name}: ${m.text}`, m.project);
   ring(identityOf(m.project));
@@ -418,7 +424,7 @@ function obey(result) {
   let passthrough = false;
   for (const a of result.actions) {
     if (a.type === "passthrough") passthrough = true;
-    else if (a.type === "dismiss") removeItem(a.item);
+    else if (a.type === "dismiss") { heardAt.set(a.item.project, Date.now()); removeItem(a.item); }
     else if (a.type === "focus") { quietHandover = a.project; voice.clear(); send({ type: "focus", project: a.project }); }
     else settle(a.item, a);
   }
@@ -474,7 +480,9 @@ function standup() {
   central.standupIntro(list.length);
   for (const p of list) {
     const waitingItem = queue.find((i) => i.project === p.id && (i.kind === "permission" || i.kind === "question"));
-    const line = p.state === "working" ? `${p.name} here. Still working${activity.get(p.id)?.text ? `: ${activity.get(p.id).text.replace(/\.$/, "")}` : ""}.`
+    // only whole sentences the agent itself said are spoken: screen labels are clipped
+    const said = lastSaid.get(p.id);
+    const line = p.state === "working" ? `${p.name} here. Still working.${said ? ` ${said}` : ""}`
       : p.report ? `${p.name} here. ${p.report}` : central.standupEmpty(p.name);
     voice.say(waitingItem ? `${line} And I'm waiting on you.` : line, 0, { record: false, identity: p.identity, speaker: p.id });
   }
@@ -576,7 +584,8 @@ function onServer(m) {
       if (first) warnMissingVoices();
       if (greetPending) { greetPending = false; central.greet(team()); }
       else if (changed && focusedId && onCall) {
-        if (quietHandover !== focusedId) central.handover(focused());
+        if (quietHandover !== focusedId) central.handover(focused(), { heard: Date.now() - (heardAt.get(focusedId) ?? 0) < 120_000 });
+        heardAt.set(focusedId, Date.now());
         // what this agent is waiting on you for is part of the conversation now: ask it
         const pending = attention.order(queue).find((i) => i.project === focusedId && (i.kind === "permission" || i.kind === "question"));
         if (pending && quietHandover !== focusedId) obey(attention.urgent(att, pending, Date.now()));
@@ -616,9 +625,14 @@ function onServer(m) {
     case "say":
       feedSaid(m.project, m.turn, m.text, m.spoken);
       activity.set(m.project, { text: m.text, live: true });
+      lastSaid.set(m.project, m.text);
       bumpPipeline(m.project, 2);
       // only the agent on the line has a voice; the rest wait in the queue
-      if (m.spoken && mine && liveTurns.has(m.turn)) voice.say(m.text, m.turn, { identity: identityOf(m.project), speaker: m.project });
+      if (m.spoken && mine && liveTurns.has(m.turn)) {
+        voice.say(m.text, m.turn, { identity: identityOf(m.project), speaker: m.project });
+        // the floor has spoken since any heads-up: a yes from now on is for this agent
+        if (!att.floorSpoke) att = { ...att, floorSpoke: true };
+      }
       break;
     case "narrate":
       if (mine && !userPaused) voice.say(m.text, m.turn, { record: false, identity: identityOf(m.project), speaker: m.project });
@@ -643,6 +657,17 @@ function onServer(m) {
       break;
     case "notify": enqueue(m); break;
     case "picked": picked(m); break;
+    case "btw": {
+      const c = card(m.project, m.turn || 0);
+      const n = Object.assign(document.createElement("div"), { className: m.phase === "asked" ? "aside" : "said" });
+      n.textContent = m.phase === "asked" ? `by the way: ${m.text}` : `${m.text}${m.queued ? "  (queued as a follow-up)" : ""}`;
+      c.el.appendChild(n);
+      c.last = { kind: "btw", node: n };
+      scrollFeed();
+      // answered mid-task, in the agent's own voice, if you are still talking to it
+      if (m.phase === "answer" && m.project === focusedId) voice.say(m.text, 0, { identity: identityOf(m.project), speaker: m.project });
+      break;
+    }
     case "note": feedNote(m.text, m.project, !!m.problem); if (m.problem && onCall) central.say(m.text.split(/(?<=\.)\s/)[0]); break;
     case "done":
       finishCard(m.project, m.turn, m.interrupted);
@@ -722,11 +747,10 @@ function heardText(raw, { typed = false, voicedMs = Infinity } = {}) {
 
   // The assistant just asked something. A short reply is the answer to it; so is anything said
   // in reply to a question she read out. A command or a name goes where it always goes.
-  if (att.mode !== "normal") {
-    if (r.kind === "ask" || attention.classify(text) !== null) {
-      if (!obey(attention.heard(att, text, queue, Date.now()))) return;
-    } else att = { ...att, mode: "normal", item: null };
-  }
+  // Outside a window this still matters: a yes a moment after a heads-up answers it.
+  if (r.kind === "ask" || attention.classify(text) !== null) {
+    if (!obey(attention.heard(att, text, queue, Date.now()))) return;
+  } else if (att.mode !== "normal") att = { ...att, mode: "normal", item: null };
 
   if (continuing) {
     continuing = false;
@@ -832,6 +856,19 @@ function local(name) {
 }
 
 function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
+  // Talking to an agent that is busy: a side question (Claude Code's /btw). It is answered in a
+  // second or two while the work carries on; if it is really new work, the agent says it will do
+  // it next and it is queued. Either way, nothing waits behind a long task in silence.
+  const target = pid ?? focusedId;
+  if (working && !merge && target === focusedId) {
+    voice.clear();
+    userPaused = false;
+    lastAsk = { text: prompt, at: Date.now(), btw: true };
+    send({ type: "btw", project: target, text: prompt });
+    showYou(shown);
+    render();
+    return;
+  }
   let context = null;
   // Talking never kills work. If the agent on the line is busy, what you said waits behind it,
   // and the work's own report still plays when it lands. Only "stop" cuts work off.
@@ -974,7 +1011,7 @@ function onSpeechStart() {
   hearing = true;
   lastActivity = Date.now();
   // hold (not drop) the reply: if this turns out to be noise it plays on, if it is more of your sentence it is replaced
-  if (lastAsk && Date.now() - lastAsk.at < MERGE_MS && !spokeThisTurn) { continuing = true; voice.hold(); }
+  if (lastAsk && !lastAsk.btw && Date.now() - lastAsk.at < MERGE_MS && !spokeThisTurn) { continuing = true; voice.hold(); }
   showYou("…", true);
   // with headphones the voice cannot reach the mic, so cut it off the moment you speak
   if ($("phones").checked && voice.speaking && !userPaused) { ducked = true; voice.hold(); }
@@ -1002,7 +1039,7 @@ function tick() {
   // speakers: be stricter while a voice is talking so it does not trigger the mic
   listener?.strict(!$("phones").checked && voice.speaking);
   // an answer window stays open while the assistant is still talking, and lapses after
-  att = attention.tick(att, now, { speaking: !voice.idle });
+  att = attention.tick(att, now, { speaking: !voice.idle, hearing });
   // in a quiet moment, say who is waiting — never what about
   const typing = $("typeBox").value.trim() && now - lastTyped < TYPING_MS;
   const quietMs = typing ? 0 : now - Math.max(lastActivity, lastTyped);
