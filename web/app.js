@@ -21,6 +21,7 @@ let userPaused = false, pausedAt = 0;
 let ducked = false; // voice held because the user started talking
 let hearing = false;
 let callStart = 0, lastActivity = 0, sleepTimer = null;
+let lastSpoke = 0; // when you last actually said something, as opposed to work carrying on
 let segSeq = 0;
 let audioCtx = null;
 // Speculative sending: each utterance goes to Claude the moment it is transcribed. If you keep
@@ -32,6 +33,8 @@ const INSIST_MS = 12_000;
 // An update from a background project waits this long after you stop talking, so it does not
 // collide with you carrying on your own thought.
 const RELAY_SETTLE_MS = 1200;
+// However busy the projects are, a call with nobody talking to it ends after this long.
+const MAX_UNATTENDED_MS = 45 * 60_000;
 let lastAsk = null; // { text, at }
 let spokeThisTurn = false;
 let continuing = false;
@@ -106,7 +109,22 @@ function showYou(text, pending) {
 
 // ---------- behind-the-scenes feed ----------
 const cards = new Map(); // key: `${project}:${turn}`
+const cardOrder = []; // insertion order, for pruning the oldest once the feed grows long
 const key = (pid, turn) => `${pid}:${turn}`;
+// A call left running for hours builds thousands of turn cards with nothing to bound them: the
+// feed keeps growing, every scroll check and re-render gets heavier, and eventually the tab's
+// main thread cannot keep up with its own DOM — which looks, from outside, like a hung tab that
+// will not even close. Finished cards past this count are dropped; the live one is never pruned.
+const MAX_FEED_CARDS = 150;
+function pruneFeed(exceptKey) {
+  while (cardOrder.length > MAX_FEED_CARDS) {
+    const oldest = cardOrder[0];
+    if (oldest === exceptKey) break; // never drop the turn in progress
+    cardOrder.shift();
+    cards.get(oldest)?.el.remove();
+    cards.delete(oldest);
+  }
+}
 function card(pid, turn) {
   const k = key(pid, turn);
   let c = cards.get(k);
@@ -119,6 +137,8 @@ function card(pid, turn) {
   if (!dropped.has(turn)) feed.appendChild(el);
   c = { el, last: null, screen: null, screenMd: "", tools: new Map() };
   cards.set(k, c);
+  cardOrder.push(k);
+  pruneFeed(k);
   return c;
 }
 function block(c, kind, make) {
@@ -174,8 +194,17 @@ function feedScreen(pid, turn, text) {
   const c = card(pid, turn);
   if (!c.screen) { c.screen = Object.assign(document.createElement("div"), { className: "screen" }); c.el.appendChild(c.screen); }
   c.screenMd += text;
-  c.screen.innerHTML = renderMarkdown(c.screenMd.replace(/^\n+|\s+$/g, ""));
-  scrollFeed();
+  // Re-parsing the whole block on every chunk is O(n^2) over a long reply: a few hundred chunks
+  // into a long `<screen>` and each one re-renders everything received so far. One render per
+  // frame, however fast the chunks arrive, keeps the cost bounded by how much actually changed.
+  if (!c.screenPending) {
+    c.screenPending = true;
+    requestAnimationFrame(() => {
+      c.screenPending = false;
+      c.screen.innerHTML = renderMarkdown(c.screenMd.replace(/^\n+|\s+$/g, ""));
+      scrollFeed();
+    });
+  }
 }
 function feedError(pid, turn, text) {
   const c = card(pid, turn);
@@ -398,7 +427,7 @@ function heardText(raw, { typed = false } = {}) {
     }
   }
   lastIgnored = null;
-  lastActivity = Date.now();
+  lastActivity = lastSpoke = Date.now();
   showYou(text);
   ducked = false;
 
@@ -436,12 +465,7 @@ function local(name) {
   switch (name) {
     case "pause": return pauseBuddy();
     case "resume": if (userPaused || voice.busy) return resumeBuddy(); return;
-    case "stop":
-      voice.clear();
-      userPaused = false;
-      send({ type: "interrupt", project: focusedId });
-      render();
-      return;
+    case "stop": return stopFocused();
     case "stop-all":
       voice.clear();
       userPaused = false;
@@ -506,6 +530,16 @@ function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
   render();
 }
 
+// Cuts the project on the line off right now: the running turn is interrupted on the server,
+// not just the voice silenced. "stop" by voice and the stop button both land here, so a button
+// press behaves identically to saying it and needs no microphone or echo guard to work.
+function stopFocused() {
+  voice.clear();
+  userPaused = false;
+  send({ type: "interrupt", project: focusedId });
+  render();
+}
+
 function pauseBuddy() {
   userPaused = true;
   pausedAt = Date.now();
@@ -525,11 +559,11 @@ function resumeBuddy() {
 async function startCall() {
   if (onCall) return;
   onCall = true;
-  callStart = lastActivity = Date.now();
+  callStart = lastActivity = lastSpoke = Date.now();
   $("callBtn").classList.add("end");
   $("callBtn").textContent = "✆";
   $("callBtn").title = "End call";
-  for (const id of ["muteBtn", "pauseBtn", "typeBox"]) $(id).disabled = false;
+  for (const id of ["muteBtn", "pauseBtn", "stopBtn", "typeBox"]) $(id).disabled = false;
   send({ type: "call-start", mode: mode() });
   // Safari only allows audio and speech that start inside the click, so do both before any await
   audioCtx ??= new (window.AudioContext || window.webkitAudioContext)();
@@ -581,7 +615,7 @@ function endCall(message) {
   $("callBtn").classList.remove("end");
   $("callBtn").textContent = "📞";
   $("callBtn").title = "Start call";
-  for (const id of ["muteBtn", "pauseBtn", "typeBox"]) $(id).disabled = true;
+  for (const id of ["muteBtn", "pauseBtn", "stopBtn", "typeBox"]) $(id).disabled = true;
   $("timer").textContent = "call ended";
   if (message) central.say(message);
   render();
@@ -618,10 +652,18 @@ function tick() {
   $("timer").textContent = `on call · ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
   // speakers: be stricter while Buddy talks so its own voice does not trigger the mic
   listener?.strict(!$("phones").checked && voice.speaking);
-  // a project still working, or an update waiting to be read out, keeps the call awake
-  const busy = voice.busy || working || notices.length || projects.some((p) => p.state === "working" || p.waiting);
-  if (busy) { lastActivity = Math.max(lastActivity, Date.now() - sleepMs() + 30_000); return; }
-  if (Date.now() - lastActivity > sleepMs()) endCall("Going to sleep. Press call to wake me.");
+  // Work in progress keeps the call awake, but only for so long. A project left waiting on a
+  // permission nobody answers would otherwise hold the line open indefinitely, which is how a
+  // call ends up still running, with its Claude processes, hours after everyone walked away.
+  const spoken = Date.now() - lastSpoke;
+  const busy = voice.busy || working || notices.length || projects.some((p) => p.state === "working");
+  if (busy && spoken < MAX_UNATTENDED_MS) {
+    lastActivity = Math.max(lastActivity, Date.now() - sleepMs() + 30_000);
+    return;
+  }
+  if (Date.now() - lastActivity > sleepMs() || spoken > MAX_UNATTENDED_MS) {
+    endCall(spoken > MAX_UNATTENDED_MS ? "Nobody has said anything for a while, so I am hanging up." : "Going to sleep. Press call to wake me.");
+  }
 }
 
 // ---------- controls ----------
@@ -641,6 +683,7 @@ $("muteBtn").onclick = () => {
   render();
 };
 $("pauseBtn").onclick = () => (userPaused ? resumeBuddy() : pauseBuddy());
+$("stopBtn").onclick = () => stopFocused();
 $("statusBtn").onclick = () => local("status");
 $("typeForm").onsubmit = (e) => {
   e.preventDefault();
