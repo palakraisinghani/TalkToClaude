@@ -1319,6 +1319,14 @@ const pendingSegments = new Map();
 // its own is useless. A refused handshake closes with 1006 and no reason, so a connection that
 // never opened is treated as a wrong code.
 const CODE_KEY = "buddyCode";
+// opened by the Mac app, which knows the code: take it from the address, then drop it from there
+{
+  const given = new URLSearchParams(location.hash.slice(1)).get("code");
+  if (given) {
+    try { localStorage.setItem(CODE_KEY, given.trim().toLowerCase()); } catch {}
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+}
 const readCode = () => { try { return localStorage.getItem(CODE_KEY) || ""; } catch { return ""; } };
 const saveCode = (c) => { try { localStorage.setItem(CODE_KEY, c); } catch {} };
 const forgetCode = () => { try { localStorage.removeItem(CODE_KEY); } catch {} };
@@ -1330,11 +1338,109 @@ function askForCode(message) {
   $("gateMsg").textContent = message ?? "";
   document.body.classList.add("locked");
   $("codeBox").value = "";
-  $("codeBox").focus();
+  // on a phone the keyboard would cover the page before it has been read
+  if (!phone.matches) $("codeBox").focus();
+  typeExamples();
+}
+
+// ---------- the opening page: things you might say, typed out one after another ----------
+const EXAMPLES = [
+  "Ada, start a project for a recipe app",
+  "Juno, run the tests and fix what fails",
+  "What's waiting for me?",
+  "Give the login page to Rex",
+  "Iris, show me how the data flows",
+  "Hold my calls for a bit",
+];
+let typing = 0;
+function typeExamples() {
+  if (typing) return;
+  const el = $("wType");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let i = 0, n = 0, back = false;
+  const step = () => {
+    if (!document.body.classList.contains("locked")) { typing = 0; return; }
+    const text = EXAMPLES[i % EXAMPLES.length];
+    if (still) { el.textContent = text; i++; typing = setTimeout(step, 3500); return; }
+    n += back ? -1 : 1;
+    el.textContent = text.slice(0, n);
+    let wait = back ? 22 : 45 + Math.random() * 50;
+    if (!back && n >= text.length) { back = true; wait = 1900; }
+    else if (back && n <= 0) { back = false; i++; wait = 350; }
+    typing = setTimeout(step, wait);
+  };
+  typing = setTimeout(step, 900);
+}
+
+// ---------- after connecting: is Claude Code installed and signed in? ----------
+let claudeSkipped = false;
+let claudePoll = 0;
+function markCheck(id, ok, note) {
+  $(id).className = `check ${ok ? "ok" : "no"}`;
+  $(id).querySelector(".mark").textContent = ok ? "✓" : "!";
+  $(id).querySelector("small").textContent = note;
+}
+function claudeStatus(m) {
+  const ready = m.installed && m.loggedIn;
+  if (ready || claudeSkipped) {
+    clearInterval(claudePoll);
+    claudePoll = 0;
+    // just signed in: a moment to see it worked, then out of the way
+    if (ready && !$("setup").hidden) {
+      markCheck("chkInstalled", true, `Version ${m.version ?? "unknown"}`);
+      markCheck("chkSigned", true, `Signed in${m.method ? ` (${m.method})` : ""}`);
+      $("stepInstall").hidden = $("stepSign").hidden = true;
+      $("setupMsg").textContent = "Claude Code is ready.";
+      setTimeout(() => ($("setup").hidden = true), 1200);
+    } else $("setup").hidden = true;
+    return;
+  }
+  $("setup").hidden = false;
+  markCheck("chkInstalled", m.installed, m.installed ? `Version ${m.version ?? "unknown"}` : "Not found on the computer running ClaudeCall");
+  markCheck("chkSigned", m.loggedIn, !m.installed ? "After installing" : m.loggedIn ? `Signed in${m.method ? ` (${m.method})` : ""}` : "Not signed in yet");
+  if (!m.installed) $("chkSigned").className = "check";
+  $("stepInstall").hidden = m.installed;
+  $("stepSign").hidden = !m.installed || m.loggedIn;
+  // the sign-in opens in a terminal on the computer itself: from a phone, the command instead
+  $("signButtons").hidden = !m.sameComputer;
+  $("signRemote").hidden = $("signCmd").hidden = !!m.sameComputer;
+}
+$("setupCheck").onclick = () => { $("setupMsg").textContent = "Checking…"; send({ type: "claude-check" }); setTimeout(() => { if ($("setupMsg").textContent === "Checking…") $("setupMsg").textContent = ""; }, 1500); };
+$("setupSkip").onclick = () => { claudeSkipped = true; $("setup").hidden = true; clearInterval(claudePoll); };
+const signIn = (kind) => {
+  $("setupMsg").textContent = "Opening the sign-in…";
+  send({ type: "claude-login", kind });
+};
+$("signClaude").onclick = () => signIn("claudeai");
+$("signConsole").onclick = () => signIn("console");
+$("keyForm").onsubmit = (e) => {
+  e.preventDefault();
+  const key = $("keyBox").value.trim();
+  if (!key) return;
+  $("setupMsg").textContent = "Saving…";
+  send({ type: "claude-key", key });
+  $("keyBox").value = "";
+};
+for (const b of document.querySelectorAll("[data-copy]")) {
+  b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.previousElementSibling.textContent); b.textContent = "Copied"; } catch { b.textContent = "Select it"; }
+    setTimeout(() => (b.textContent = "Copy"), 1600);
+  };
+}
+function claudeLogin(m) {
+  if (m.error) { $("setupMsg").textContent = m.error; return; }
+  $("setupMsg").textContent = "A terminal opened on your computer. Finish signing in in the browser it opens; this page notices when you are done.";
+  // keep checking while the lead signs in, for a few minutes
+  clearInterval(claudePoll);
+  let tries = 0;
+  claudePoll = setInterval(() => {
+    if ($("setup").hidden || ++tries > 60) { clearInterval(claudePoll); claudePoll = 0; return; }
+    send({ type: "claude-check" });
+  }, 3000);
 }
 
 function connect() {
-  if (!code) return askForCode("Enter the access code shown in the terminal where ClaudeCall is running.");
+  if (!code) return askForCode("");
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`, [`buddy.${code}`]);
   ws.binaryType = "arraybuffer";
   ws.onopen = () => {
@@ -1515,6 +1621,8 @@ function onServer(m) {
     case "call-control": afterSpeech(() => callControl(m.do)); break;
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
+    case "claude-status": claudeStatus(m); break;
+    case "claude-login": claudeLogin(m); break;
     case "tts-capable": ttsCapable = !!m.ok; $("stereoRow").hidden = !ttsCapable; useStereo(); break;
     case "tts": { const w = ttsWaiting.get(m.id); ttsWaiting.delete(m.id); if (w) m.wav ? w.resolve(m.wav) : w.reject(new Error(m.error ?? "no audio")); break; }
     case "briefing": briefing(m); break;

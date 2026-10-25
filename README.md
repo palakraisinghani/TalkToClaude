@@ -10,12 +10,36 @@ or from your phone or iPad. On any of them it can be installed as an app.
 ## What you need
 
 - **macOS or Linux**
-- **Node.js 23.6 or newer** (it runs the TypeScript directly)
-- **Claude Code**, signed in: the `claude` command must work in a terminal
+- **Claude Code**, installed and signed in on that computer. Every agent is a Claude Code session.
+  ```sh
+  curl -fsSL https://claude.ai/install.sh | bash    # or: npm install -g @anthropic-ai/claude-code
+  claude auth login                                 # a Claude subscription; --console for API billing
+  ```
+  You don't have to do this first. After you connect, ClaudeCall checks for Claude Code. If it's
+  missing or signed out, it shows these steps. On the computer itself, a button opens Claude Code's
+  own sign-in. ClaudeCall never sees your password or token. You can also paste an Anthropic API
+  key there instead. It is kept in `~/.config/claudecall/anthropic-key`, readable only by you.
 - **git** (for undo)
 - On Linux, optionally **zenity** for the "Choose folder" button
+- To run from source: **Node.js 23.6 or newer** (the Mac app brings its own)
 
-## Try it
+## Mac app
+
+Download `ClaudeCall-<version>-<arch>.dmg`, open it, and drag ClaudeCall to Applications. Opening
+the app does two things:
+- starts ClaudeCall in the background, and keeps it running after login
+- opens it in your browser, already signed in with the access code, and ready to install as an app
+
+The first start downloads the speech model, which takes about a minute. Its data goes in
+`~/Library/Application Support/ClaudeCall`, and the speech model in `~/Library/Caches/ClaudeCall`.
+
+The app is not signed with an Apple Developer ID yet. The first time, right-click it and choose
+**Open**, or allow it in System Settings → Privacy & Security.
+
+To build it yourself on a Mac: `npm run build:mac` (it writes `dist/ClaudeCall-<version>-<arch>.dmg`,
+for the Mac it's built on).
+
+## Run from source
 
 ```sh
 npm install
@@ -90,6 +114,9 @@ On Linux the browser speaks instead, and those two options are hidden.
 | `BUDDY_TOKEN` | random each start | the access code |
 | `BUDDY_HOME` | `~/buddy-home` | Ada's folder; new projects are made in it |
 | `BUDDY_STT_MODEL` | `fast` | `accurate` for a larger, slower recogniser |
+| `BUDDY_DATA` | the app folder | where calls, logs and the certificate are written |
+| `BUDDY_MODEL_CACHE` | inside `node_modules` | where the speech models are kept |
+| `ANTHROPIC_API_KEY` | | used by the agents instead of a Claude sign-in |
 
 ## Development
 

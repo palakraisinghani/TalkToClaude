@@ -15,12 +15,15 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CONF="$HOME/.config/claudecall"
 ENV_FILE="$CONF/env"
-LABEL=com.claudecall
+LABEL=${CLAUDECALL_LABEL:-com.claudecall}
+UNIT=${CLAUDECALL_LABEL:-claudecall}.service
 OS=$(uname -s)
 
 die() { echo "error: $*" >&2; exit 1; }
 
 node_bin() {
+  # the Mac app brings its own Node
+  if [ -n "${CLAUDECALL_NODE:-}" ]; then echo "$CLAUDECALL_NODE"; return; fi
   command -v node >/dev/null 2>&1 || die "Node.js is not installed (version 23.6 or newer is needed)."
   major=$(node -p 'process.versions.node.split(".")[0]')
   minor=$(node -p 'process.versions.node.split(".")[1]')
@@ -33,6 +36,11 @@ write_env() {
   mkdir -p "$CONF"
   if [ -f "$ENV_FILE" ]; then
     echo "Keeping your settings in $ENV_FILE"
+    # the app's own folders, added to settings made before it was installed
+    for v in BUDDY_DATA BUDDY_MODEL_CACHE; do
+      val=$(eval "printf %s \"\${$v:-}\"")
+      [ -n "$val" ] && ! grep -q "^$v=" "$ENV_FILE" && echo "$v=\"$val\"" >>"$ENV_FILE"
+    done
     return
   fi
   # a code that stays the same across restarts, so a phone that has it keeps working
@@ -41,17 +49,20 @@ write_env() {
   [ "$lan" = 1 ] && host=0.0.0.0
   {
     echo "# ClaudeCall settings. Change them, then: scripts/service.sh restart"
+    # values are quoted: a folder like "Application Support" has a space in it
     echo "BUDDY_TOKEN=$token"
     echo "BUDDY_HOST=$host"
     echo "PORT=$port"
-    echo "BUDDY_HOME=$HOME/buddy-home"
+    echo "BUDDY_HOME=\"$HOME/buddy-home\""
+    [ -n "${BUDDY_DATA:-}" ] && echo "BUDDY_DATA=\"$BUDDY_DATA\""
+    [ -n "${BUDDY_MODEL_CACHE:-}" ] && echo "BUDDY_MODEL_CACHE=\"$BUDDY_MODEL_CACHE\""
     # the service does not get your shell's PATH: claude, git and node must be findable
-    echo "PATH=$PATH"
+    echo "PATH=\"$PATH\""
   } >"$ENV_FILE"
   chmod 600 "$ENV_FILE"
 }
 
-get() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+get() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | sed 's/^"\(.*\)"$/\1/'; }
 
 show_where() {
   port=$(get PORT); host=$(get BUDDY_HOST)
@@ -99,7 +110,7 @@ EOF
 install_linux() {
   node=$1
   command -v systemctl >/dev/null 2>&1 || die "systemd was not found. Run it in a terminal instead: npm start"
-  unit="$HOME/.config/systemd/user/claudecall.service"
+  unit="$HOME/.config/systemd/user/$UNIT"
   mkdir -p "$(dirname "$unit")"
   cat >"$unit" <<EOF
 [Unit]
@@ -117,7 +128,7 @@ RestartSec=5
 WantedBy=default.target
 EOF
   systemctl --user daemon-reload
-  systemctl --user enable --now claudecall.service
+  systemctl --user enable --now "$UNIT"
   echo "Tip: to keep it running while you are logged out: sudo loginctl enable-linger $USER"
 }
 
@@ -135,7 +146,8 @@ case "$cmd" in
       shift
     done
     node=$(node_bin)
-    command -v claude >/dev/null 2>&1 || die "Claude Code (the claude command) is not installed or not on your PATH."
+    # not fatal: the page walks you through installing and signing in
+    command -v claude >/dev/null 2>&1 || echo "Note: Claude Code (the claude command) was not found. ClaudeCall will show you how to install it." 
     [ -d "$ROOT/node_modules" ] || (cd "$ROOT" && npm install)
     write_env "$lan" "$port"
     case "$OS" in
@@ -148,28 +160,28 @@ case "$cmd" in
   uninstall)
     case "$OS" in
       Darwin) launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true; rm -f "$HOME/Library/LaunchAgents/$LABEL.plist" ;;
-      Linux) systemctl --user disable --now claudecall.service 2>/dev/null || true; rm -f "$HOME/.config/systemd/user/claudecall.service"; systemctl --user daemon-reload ;;
+      Linux) systemctl --user disable --now "$UNIT" 2>/dev/null || true; rm -f "$HOME/.config/systemd/user/$UNIT"; systemctl --user daemon-reload ;;
     esac
     echo "Removed. Your settings stay in $ENV_FILE and your projects in your ClaudeCall home."
     ;;
   restart)
     case "$OS" in
       Darwin) launchctl kickstart -k "gui/$(id -u)/$LABEL" ;;
-      Linux) systemctl --user restart claudecall.service ;;
+      Linux) systemctl --user restart "$UNIT" ;;
     esac
     show_where
     ;;
   status)
     case "$OS" in
       Darwin) launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E "state|pid =" || echo "not installed" ;;
-      Linux) systemctl --user status claudecall.service --no-pager || true ;;
+      Linux) systemctl --user status "$UNIT" --no-pager || true ;;
     esac
     [ -f "$ENV_FILE" ] && show_where
     ;;
   logs)
     case "$OS" in
       Darwin) tail -n 100 -f "$HOME/Library/Logs/ClaudeCall.log" ;;
-      Linux) journalctl --user -u claudecall.service -n 100 -f ;;
+      Linux) journalctl --user -u "$UNIT" -n 100 -f ;;
     esac
     ;;
   *)

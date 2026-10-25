@@ -1,5 +1,9 @@
-import { AutoProcessor, AutoTokenizer, pipeline, WhisperForConditionalGeneration } from "@huggingface/transformers";
+import { AutoProcessor, AutoTokenizer, env, pipeline, WhisperForConditionalGeneration } from "@huggingface/transformers";
 import type { STT, TranscribeOptions } from "./types.ts";
+
+// the downloaded models go inside node_modules unless told otherwise; the packaged app cannot
+// write there, so it says where (see scripts/build-mac.sh)
+if (process.env.BUDDY_MODEL_CACHE) env.cacheDir = process.env.BUDDY_MODEL_CACHE;
 
 /**
  * Which recogniser to run. Measured on names said in Indian and other English accents, each take

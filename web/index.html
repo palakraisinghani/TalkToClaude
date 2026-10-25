@@ -515,15 +515,114 @@
   .headcard .htools { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
   .headcard:hover .htools, .headcard:focus-within .htools { opacity: 1; }
   .headcard .htools .iconbtn { width: 26px; height: 26px; border-radius: 8px; background: var(--card); }
-  #gate { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: var(--bg); padding: 24px; }
-  body.locked #gate { display: grid; }
-  body.locked main, body.locked header { visibility: hidden; }
-  #gate .box { width: min(360px, 100%); text-align: center; display: grid; gap: 12px; justify-items: center; }
-  #gate h2 { margin: 0; font-size: 20px; }
-  #gate p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-  #gate input { width: 100%; font: inherit; font-family: var(--mono); font-size: 18px; letter-spacing: 3px; text-align: center; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
-  #gate button { width: 100%; font: inherit; padding: 10px; border-radius: 12px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  /* ---------- the opening page: what ClaudeCall is, then the access code ---------- */
+  #gate { position: fixed; inset: 0; z-index: 10; display: none; overflow-y: auto; background: var(--bg); }
+  body.locked #gate { display: block; }
+  body.locked main, body.locked header, body.locked #phoneNav { visibility: hidden; }
+  .welcome { position: relative; min-height: 100%; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, 400px); align-items: center; gap: clamp(24px, 5vw, 72px); padding: clamp(24px, 6vw, 80px); padding-top: max(24px, env(safe-area-inset-top)); max-width: 1240px; margin: 0 auto; box-sizing: border-box; isolation: isolate; }
+  .wbg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .wbg .blob { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(70px); opacity: .45; animation: drift 22s ease-in-out infinite alternate; }
+  .wbg .b1 { background: #f2b49b; top: -18vmax; left: -12vmax; }
+  .wbg .b2 { background: #f6dcc4; bottom: -22vmax; right: -14vmax; animation-duration: 28s; animation-delay: -6s; }
+  .wbg .b3 { background: #e9a185; top: 30%; left: 45%; width: 26vmax; height: 26vmax; opacity: .22; animation-duration: 18s; animation-delay: -3s; }
+  @keyframes drift { from { transform: translate(0, 0) scale(1); } to { transform: translate(6vmax, 4vmax) scale(1.12); } }
+  .whero { display: grid; gap: 18px; }
+  .wbrand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; animation: rise .7s both; }
+  .wbrand .logo { width: 30px; height: 30px; border-radius: 9px; background: url(/icon.svg) center / cover no-repeat; }
+  .wstage { width: min(300px, 70vw); aspect-ratio: 1; margin: 4px 0 -4px -10px; animation: rise .8s .05s both; }
+  .wstage svg { width: 100%; height: 100%; overflow: visible; }
+  .wstage .link { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 90; stroke-dashoffset: 90; animation: draw 1s ease-out forwards; }
+  .wstage .seat { transform-box: fill-box; transform-origin: center; animation: pop .5s cubic-bezier(.3, 1.6, .5, 1) both; }
+  .wstage .seat circle { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  .wstage .seat text { font: 600 13px system-ui, sans-serif; fill: var(--ink); text-anchor: middle; dominant-baseline: central; }
+  .wstage .seat.busy circle { stroke: var(--speak); stroke-width: 2.5; }
+  .wstage .seat .tick { fill: var(--speak); opacity: 0; animation: blink 4s 2.4s infinite; }
+  .wstage .ada circle.core { fill: var(--accent); }
+  .wstage .ada text { fill: #fff; font-size: 17px; }
+  .wstage .wave { fill: none; stroke: var(--accent); stroke-width: 2; transform-box: fill-box; transform-origin: center; animation: ripple 2.8s ease-out infinite; opacity: 0; }
+  .wstage .wave.w2 { animation-delay: .9s; } .wstage .wave.w3 { animation-delay: 1.8s; }
+  .wstage .orbit { transform-origin: 120px 120px; animation: spin 60s linear infinite; }
+  .wstage .orbit .seat > * { transform-box: fill-box; transform-origin: center; animation: spin 60s linear infinite reverse; }
+  .wstage .pulse { fill: var(--accent); offset-rotate: 0deg; animation: travel 2.6s ease-in-out infinite; opacity: 0; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes ripple { 0% { transform: scale(.7); opacity: .55; } 100% { transform: scale(1.9); opacity: 0; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 0%, 60%, 100% { opacity: 0; } 70%, 90% { opacity: 1; } }
+  @keyframes travel { 0% { offset-distance: 0%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+  @keyframes rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .whero h1 { margin: 0; font-size: clamp(32px, 5.2vw, 58px); line-height: 1.04; letter-spacing: -1.2px; font-weight: 780; animation: rise .8s .15s both; }
+  .whero h1 em { font-style: normal; background: linear-gradient(90deg, var(--accent), #e9a06f, var(--accent)); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 6s linear infinite; }
+  @keyframes shine { to { background-position: 200% center; } }
+  .wlead { margin: 0; font-size: clamp(15px, 1.6vw, 18px); line-height: 1.55; color: var(--muted); max-width: 34em; animation: rise .8s .25s both; }
+  .wsay { display: inline-flex; align-items: center; gap: 10px; justify-self: start; max-width: 100%; padding: 10px 16px 10px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 15px; animation: rise .8s .35s both; }
+  .wsay .mic { display: grid; place-items: center; width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--accent); color: #fff; position: relative; }
+  .wsay .mic::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; animation: ripple 1.8s ease-out infinite; }
+  #wType { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .wsay .caret { width: 2px; height: 18px; background: var(--accent); flex: none; animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  .wfeat { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .wfeat li { display: grid; gap: 4px; align-content: start; padding: 14px; border-radius: 16px; background: color-mix(in srgb, var(--card) 72%, transparent); border: 1px solid var(--line); backdrop-filter: blur(6px); animation: rise .7s both; }
+  .wfeat li:nth-child(1) { animation-delay: .45s; } .wfeat li:nth-child(2) { animation-delay: .55s; } .wfeat li:nth-child(3) { animation-delay: .65s; }
+  .wfeat .ic { color: var(--accent); }
+  .wfeat b { font-size: 14px; }
+  .wfeat span { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  .wcard { display: grid; gap: 12px; padding: 26px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 2px 6px rgb(0 0 0 / .04), 0 18px 50px rgb(120 60 30 / .12); animation: rise .8s .3s both; }
+  .wcard h2 { margin: 0; font-size: 19px; }
+  .wcard p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .wcard code, .setupcard code { font-family: var(--mono); font-size: 12px; background: var(--bg); padding: 1px 6px; border-radius: 6px; }
+  #gate input { width: 100%; box-sizing: border-box; font: inherit; font-family: var(--mono); font-size: 18px; letter-spacing: 3px; text-align: center; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  #gate input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+  .wbtn { width: 100%; font: inherit; font-weight: 600; padding: 12px; border-radius: 12px; border: none; background: var(--accent); color: white; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+  .wbtn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgb(215 119 87 / .35); }
+  .wbtn.ghost { background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+  .wbtn.ghost:hover { box-shadow: none; border-color: var(--accent); }
   #gateMsg { color: var(--think); min-height: 1.2em; font-size: 13px; }
+  .wneeds { display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: var(--muted); line-height: 1.5; padding-top: 12px; border-top: 1px solid var(--line2); }
+  .wneeds a, .setupcard a { color: var(--accent-ink); }
+  @media (max-width: 900px) {
+    /* one column: the pitch, then the code, then the details — not the code below everything */
+    .welcome { grid-template-columns: minmax(0, 1fr); align-items: start; justify-items: center; gap: 18px; text-align: center; }
+    .whero { display: contents; }
+    .wcard { order: 1; width: min(440px, 100%); box-sizing: border-box; text-align: left; }
+    .wfeat { order: 2; }
+    .wstage { width: min(220px, 56vw); margin: 0 auto -6px; }
+    .wbrand { justify-content: center; }
+    .wsay { justify-self: center; }
+    .wfeat { grid-template-columns: 1fr; text-align: left; width: min(440px, 100%); }
+    .wfeat li { grid-template-columns: auto 1fr; column-gap: 12px; }
+    .wfeat .ic { grid-row: span 2; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .welcome *, .welcome *::after, .wbg .blob { animation-duration: 1ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; }
+    .wstage .wave, .wstage .pulse { display: none; }
+  }
+
+  /* ---------- after connecting: is Claude Code ready? ---------- */
+  #setup { position: fixed; inset: 0; z-index: 11; display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(8px); overflow-y: auto; }
+  #setup[hidden] { display: none; }
+  .setupcard { width: min(520px, 100%); display: grid; gap: 14px; padding: 26px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 18px 50px rgb(0 0 0 / .14); animation: rise .5s both; }
+  .setupcard h2 { margin: 0; font-size: 20px; }
+  .setupcard > p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+  .checks { display: grid; gap: 8px; }
+  .check { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg); font-size: 14px; }
+  .check .mark { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--line); color: var(--muted); font-weight: 700; font-size: 13px; }
+  .check.ok .mark { background: var(--speak); color: #fff; }
+  .check.no .mark { background: var(--think); color: #fff; }
+  .check small { display: block; color: var(--muted); font-size: 12px; }
+  .setupstep { display: grid; gap: 10px; }
+  .setupstep h3 { margin: 4px 0 0; font-size: 14px; }
+  .cmdline { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: #1f1e1b; color: #f0eee6; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; }
+  .cmdline code { flex: 1; white-space: nowrap; background: none !important; padding: 0 !important; color: inherit; }
+  .cmdline button { flex: none; border: 1px solid #4a4843; background: none; color: #f0eee6; border-radius: 8px; padding: 3px 9px; cursor: pointer; font: inherit; font-size: 11.5px; }
+  .setupcard .or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+  .setupcard .or::before, .setupcard .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .setupcard .keyrow { display: flex; gap: 8px; }
+  .setupcard .keyrow input { flex: 1; min-width: 0; font: inherit; font-family: var(--mono); font-size: 13px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .setupcard .keyrow .wbtn { width: auto; padding: 10px 16px; }
+  .setupcard .row2 { display: flex; gap: 10px; flex-wrap: wrap; }
+  .setupcard .row2 .wbtn { flex: 1; min-width: 180px; }
+  #setupMsg { color: var(--think); font-size: 13px; min-height: 1.2em; margin: 0; }
 
   /* narrower screens: canvas and behind the scenes share one column, as tabs */
   @media (max-width: 1500px) {
@@ -686,14 +785,80 @@
 </head>
 <body>
 <div id="gate">
-  <form class="box" id="codeForm" autocomplete="off">
-    <span class="brand"><span class="logo"></span></span>
-    <h2>ClaudeCall</h2>
-    <p>ClaudeCall can edit files and run commands on the machine it is running on, so it asks for a code. It is printed in the terminal that started it, and this device will remember it. After ten wrong tries you will have to wait a little before trying again.</p>
-    <input id="codeBox" inputmode="latin" autocapitalize="off" spellcheck="false" placeholder="access code" aria-label="Access code">
-    <button type="submit">Connect</button>
-    <div id="gateMsg"></div>
-  </form>
+  <div class="welcome">
+    <div class="wbg" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span></div>
+    <section class="whero">
+      <div class="wbrand"><span class="logo"></span>ClaudeCall</div>
+      <div class="wstage" aria-hidden="true">
+        <!-- you lead, Ada relays, the team works: the call, drawn -->
+        <svg viewBox="0 0 240 240">
+          <defs><path id="wp1" d="M120 120 L120 34"/><path id="wp2" d="M120 120 L201 152"/><path id="wp3" d="M120 120 L39 152"/></defs>
+          <circle class="wave" cx="120" cy="120" r="34"/><circle class="wave w2" cx="120" cy="120" r="34"/><circle class="wave w3" cx="120" cy="120" r="34"/>
+          <g class="orbit">
+            <line class="link" x1="120" y1="120" x2="120" y2="34" style="animation-delay:.5s"/>
+            <line class="link" x1="120" y1="120" x2="201" y2="152" style="animation-delay:.7s"/>
+            <line class="link" x1="120" y1="120" x2="39" y2="152" style="animation-delay:.9s"/>
+            <circle class="pulse" r="3.5" style="offset-path:path('M120 120 L120 34');animation-delay:1.6s"/>
+            <circle class="pulse" r="3.5" style="offset-path:path('M120 120 L201 152');animation-delay:2.5s"/>
+            <circle class="pulse" r="3.5" style="offset-path:path('M120 120 L39 152');animation-delay:3.4s"/>
+            <g class="seat busy" style="animation-delay:1.1s"><g><circle cx="120" cy="34" r="22"/><text x="120" y="34">Juno</text><circle class="tick" cx="137" cy="18" r="5"/></g></g>
+            <g class="seat" style="animation-delay:1.25s"><g><circle cx="201" cy="152" r="22"/><text x="201" y="152">Rex</text></g></g>
+            <g class="seat busy" style="animation-delay:1.4s"><g><circle cx="39" cy="152" r="22"/><text x="39" y="152">Iris</text><circle class="tick" cx="56" cy="136" r="5" style="animation-delay:3.6s"/></g></g>
+          </g>
+          <g class="seat ada" style="animation-delay:.2s"><circle class="core" cx="120" cy="120" r="32"/><text x="120" y="120">Ada</text></g>
+        </svg>
+      </div>
+      <h1>Lead your Claude team <em>by voice</em></h1>
+      <p class="wlead">Talk to Ada, your assistant. She sets up projects, hands out the work and tells you who needs you, while each agent codes away in its own folder.</p>
+      <div class="wsay" aria-hidden="true"><span class="mic"><span data-icon="mic" data-size="15"></span></span><span id="wType"></span><i class="caret"></i></div>
+      <ul class="wfeat">
+        <li><span class="ic" data-icon="users" data-size="20"></span><b>A team, not a chat</b><span>Every project gets its own Claude Code agent. One has the floor; the rest keep working.</span></li>
+        <li><span class="ic" data-icon="mic" data-size="20"></span><b>Hands-free</b><span>Talk naturally: cut in, pause, ask for a summary. Questions wait until you are free.</span></li>
+        <li><span class="ic" data-icon="phone" data-size="20"></span><b>Wherever you are</b><span>On your laptop, phone or iPad. Add it to your home screen as an app.</span></li>
+      </ul>
+    </section>
+    <form class="wcard" id="codeForm" autocomplete="off">
+      <h2>Join your call</h2>
+      <p>ClaudeCall can edit files and run commands on the computer it runs on, so it asks for an access code. It was printed when ClaudeCall started (or run <code>npm run service status</code>). This device remembers it.</p>
+      <input id="codeBox" inputmode="latin" autocapitalize="off" spellcheck="false" placeholder="access code" aria-label="Access code">
+      <button class="wbtn" type="submit">Connect</button>
+      <div id="gateMsg"></div>
+      <div class="wneeds"><span data-icon="terminal" data-size="16"></span><span>Runs on <b>Claude Code</b>, which must be installed and signed in on that computer. Not yet? ClaudeCall will walk you through it after you connect. <a href="https://docs.anthropic.com/en/docs/claude-code/overview" target="_blank" rel="noopener">About Claude Code</a></span></div>
+    </form>
+  </div>
+</div>
+<div id="setup" hidden>
+  <div class="setupcard" role="dialog" aria-labelledby="setupTitle">
+    <h2 id="setupTitle">Almost there</h2>
+    <p>Every agent on your team is a Claude Code session on the computer running ClaudeCall. It needs Claude Code installed and signed in.</p>
+    <div class="checks">
+      <div class="check" id="chkInstalled"><span class="mark">1</span><div><b>Claude Code installed</b><small></small></div></div>
+      <div class="check" id="chkSigned"><span class="mark">2</span><div><b>Signed in</b><small></small></div></div>
+    </div>
+    <div class="setupstep" id="stepInstall" hidden>
+      <h3>Install Claude Code</h3>
+      <p class="hint" style="margin:0;color:var(--muted);font-size:13px">In a terminal on that computer:</p>
+      <div class="cmdline"><code>curl -fsSL https://claude.ai/install.sh | bash</code><button type="button" data-copy>Copy</button></div>
+      <p style="margin:0;color:var(--muted);font-size:12.5px">Or with npm: <code>npm install -g @anthropic-ai/claude-code</code>. Then restart ClaudeCall so it finds it.</p>
+    </div>
+    <div class="setupstep" id="stepSign" hidden>
+      <h3>Sign in</h3>
+      <div class="row2" id="signButtons">
+        <button class="wbtn" type="button" id="signClaude">Sign in with Claude</button>
+        <button class="wbtn ghost" type="button" id="signConsole">Use Anthropic Console</button>
+      </div>
+      <p id="signRemote" hidden style="margin:0;color:var(--muted);font-size:13px">On the computer running ClaudeCall, open a terminal and run:</p>
+      <div class="cmdline" id="signCmd" hidden><code>claude auth login</code><button type="button" data-copy>Copy</button></div>
+      <div class="or">or use an API key</div>
+      <form class="keyrow" id="keyForm" autocomplete="off"><input id="keyBox" type="password" placeholder="sk-ant-…" aria-label="Anthropic API key"><button class="wbtn ghost" type="submit">Save</button></form>
+      <p style="margin:0;color:var(--faint);font-size:12px">A key is kept on that computer only, readable by you alone, and used by your agents. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key</a></p>
+    </div>
+    <p id="setupMsg"></p>
+    <div class="row2">
+      <button class="wbtn" type="button" id="setupCheck">Check again</button>
+      <button class="wbtn ghost" type="button" id="setupSkip">Continue anyway</button>
+    </div>
+  </div>
 </div>
 <div id="staleBar" hidden><span data-icon="sliders" data-size="15"></span><span id="staleText"></span><button class="iconbtn" id="staleClose" data-icon="x" data-size="14" title="Dismiss"></button></div>
 <header class="top">

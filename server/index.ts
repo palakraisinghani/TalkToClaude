@@ -9,6 +9,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { Auth } from "./auth.ts";
 import { Call } from "./call.ts";
 import { Notebook } from "./notebook.ts";
+import { claudeStatus, forgetKey, loadSavedKey, openSignIn, saveKey } from "./claude.ts";
 import { ensureCert, localAddresses, multiplex } from "./tls.ts";
 import { CENTRAL, CENTRAL_ID, centralName, setCentralName } from "./identity.ts";
 import { loadCentral, loadProjects, loadSaved, saveRoster, type ProjectConfig } from "./projects.ts";
@@ -25,8 +26,10 @@ import type { Mode, Rewriter } from "./types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const webDir = join(root, "web");
-const workDir = resolve(process.env.BUDDY_CWD ?? join(root, "session"));
-const callsDir = resolve(process.env.BUDDY_CALLS_DIR ?? join(root, "calls"));
+// what ClaudeCall writes as it runs; the packaged app keeps it out of the app itself
+const dataDir = resolve(process.env.BUDDY_DATA ?? root);
+const workDir = resolve(process.env.BUDDY_CWD ?? join(dataDir, "session"));
+const callsDir = resolve(process.env.BUDDY_CALLS_DIR ?? join(dataDir, "calls"));
 // the central agent's home: new projects are made here, and the roster is remembered here
 const homeDir = resolve((process.env.BUDDY_HOME ?? "~/buddy-home").replace(/^~(?=$|\/)/, homedir()));
 const rosterFile = join(homeDir, ".buddy", "roster.json");
@@ -79,6 +82,8 @@ async function roster(): Promise<ProjectConfig[]> {
 }
 
 await mkdir(homeDir, { recursive: true });
+// an API key typed into ClaudeCall earlier, for the agents (see claude.ts)
+await loadSavedKey();
 // a name the lead gave her on an earlier call, before the team is named around it
 const savedName = (await loadCentral(rosterFile)).name;
 if (savedName) setCentralName(savedName);
@@ -159,7 +164,7 @@ async function renameOffline(id: string, name: string): Promise<string | null> {
   await saveRoster(rosterFile, saved, { ...central, name: named, aliases: [] });
   return null;
 }
-const tls = useTls ? await ensureCert(join(root, "certs")) : null;
+const tls = useTls ? await ensureCert(join(dataDir, "certs")) : null;
 
 const handler = async (req: any, res: any) => {
   try {
@@ -255,7 +260,8 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   const addr = String(req?.socket?.remoteAddress ?? "");
   // behind a proxy on this machine (tailscale serve, a reverse proxy) the page is still far away
   const proxied = !!req?.headers?.["x-forwarded-for"];
-  const pictureWait = /^(::1|127\.|::ffff:127\.)/.test(addr) && !proxied ? 0 : 1500;
+  const sameComputer = /^(::1|127\.|::ffff:127\.)/.test(addr) && !proxied;
+  const pictureWait = sameComputer ? 0 : 1500;
   sockets.add(ws);
   const send = (m: Record<string, any>) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
   send({ type: "stt", state: sttState, recogniser: hearing.recogniser });
@@ -265,6 +271,9 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   send({ type: "central", identity: CENTRAL, name: centralName(), id: CENTRAL_ID, home: homeDir });
   changedSinceStart().then((files) => files.length && send({ type: "stale", files }), () => {});
   send({ type: "voices", counts: voices.counts(), confident: voices.confident(), relearn: voices.needsRelearning() });
+  // is Claude Code installed and signed in? the page shows what is missing, if anything
+  const sendClaude = () => claudeStatus().then((s) => send({ type: "claude-status", ...s, sameComputer }), () => {});
+  sendClaude();
 
   /**
    * What the call sends, with any picture from a tool's output (an agent opening an image) turned
@@ -441,6 +450,28 @@ wss.on("connection", (ws: WebSocket, req: any) => {
         );
         break;
       }
+      case "claude-check":
+        sendClaude();
+        break;
+      case "claude-login":
+        // Claude Code's own sign-in, in a terminal on this computer: only from this computer,
+        // where the lead can see the terminal and the browser it opens
+        if (!sameComputer) { send({ type: "claude-login", error: "Sign in on the computer running ClaudeCall: open a terminal there and run: claude auth login" }); break; }
+        openSignIn(m.kind === "console" ? "console" : "claudeai").then(
+          () => send({ type: "claude-login", ok: true }),
+          (e) => send({ type: "claude-login", error: (e as Error).message }),
+        );
+        break;
+      case "claude-key": {
+        const problem = await saveKey(String(m.key ?? ""));
+        if (problem) send({ type: "claude-login", error: problem });
+        else sendClaude();
+        break;
+      }
+      case "claude-forget-key":
+        await forgetKey();
+        sendClaude();
+        break;
       case "pick-folder":
         // opens the system's own folder chooser on this machine, and answers with the path
         pickFolder(homedir()).then(

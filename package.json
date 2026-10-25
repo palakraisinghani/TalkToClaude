@@ -7,7 +7,8 @@
     "start": "node server/index.ts",
     "test": "node --test server/*.test.ts web/*.test.js",
     "service": "sh scripts/service.sh",
-    "icons": "node scripts/make-icons.ts"
+    "icons": "node scripts/make-icons.ts",
+    "build:mac": "sh scripts/build-mac.sh"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
