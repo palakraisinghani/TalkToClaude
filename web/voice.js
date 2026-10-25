@@ -6,7 +6,7 @@
 // it should be said in, the queue hands out the floor one sentence at a time, and a change of
 // speaker is announced with that speaker's earcon.
 
-import { isEchoOf } from "./echo.js";
+import { isEchoOf, stripEcho } from "./echo.js";
 
 // How long Buddy's own words can still come back through the speakers, and how many
 // utterances back to keep. Old speech cannot echo, so the guard forgets it.
@@ -74,13 +74,17 @@ export class Voice {
    * replayed or reported. front=true puts it next in line, after the sentence being spoken: this
    * is how the central voice reads out an update without ever cutting anyone off mid-sentence.
    */
-  say(text, turn, { record = true, identity = null, front = false, speaker = null } = {}) {
-    if (!record && !front && (this.busy || this.held)) return; // fillers never pile up
+  say(text, turn, { record = true, identity = null, front = false, speaker = null, keep = false } = {}) {
+    // fillers never pile up; `keep` is for lines that are not fillers but should not be replayed
+    // as what the lead heard either: a stand-up round, a repeat
+    if (!record && !front && !keep && (this.busy || this.held)) return;
     const item = { text, turn, record, identity, speaker };
     if (front) {
       const at = this.queue.findIndex((q) => !q.front);
       this.queue.splice(at < 0 ? this.queue.length : at, 0, { ...item, front: true });
     } else this.queue.push(item);
+    // queued behind another sentence: start making its audio now, so it is ready when its turn comes
+    if (this.current && this.engine && this.queue.length <= 3) this.engine.prefetch?.(text, identity);
     this.#next();
   }
 
@@ -96,7 +100,7 @@ export class Voice {
       this.queue.unshift({ ...c, start: from });
     }
     this.queue = this.queue.filter((q) => q.record);
-    speechSynthesis.cancel();
+    this.#silence(c);
   }
 
   resume() {
@@ -109,9 +113,10 @@ export class Voice {
     this.held = false;
     this.gen++;
     this.queue = [];
-    if (this.current) this.#endUtterance(this.current, false);
+    const c = this.current;
+    if (c) this.#endUtterance(c, false);
     this.current = null;
-    speechSynthesis.cancel();
+    this.#silence(c);
   }
 
   /** Nothing queued, nothing speaking, no earcon in flight. */
@@ -125,11 +130,18 @@ export class Voice {
     if (this.pendingItem?.speaker === speaker) this.gen++;
     this.queue = this.queue.filter((q) => q.speaker !== speaker);
     if (this.current?.speaker === speaker) {
-      this.#endUtterance(this.current, false);
+      const c = this.current;
+      this.#endUtterance(c, false);
       this.current = null;
-      speechSynthesis.cancel();
+      this.#silence(c);
       this.#next();
     }
+  }
+
+  /** Stop whatever is coming out: the stereo engine's audio, or the browser's speech. */
+  #silence(c) {
+    try { c?.stop?.(); } catch {}
+    speechSynthesis.cancel();
   }
 
   newTurn() {
@@ -149,9 +161,18 @@ export class Voice {
 
   /** Does this transcript look like Buddy's own voice, picked up from the speakers? */
   isEcho(text) {
+    return isEchoOf(text, this.#recent());
+  }
+
+  /** The transcript with Buddy's own words, heard back through the speakers, taken out. */
+  withoutEcho(text) {
+    return stripEcho(text, this.#recent());
+  }
+
+  #recent() {
     const cutoff = Date.now() - ECHO_MEMORY_MS;
     while (this.uttered.length && (this.uttered[0].at < cutoff || this.uttered.length > ECHO_MEMORY_ITEMS)) this.uttered.shift();
-    return isEchoOf(text, this.uttered.map((u) => u.text).join(" "));
+    return this.uttered.map((u) => u.text).join(" ");
   }
 
   #next() {
@@ -181,11 +202,15 @@ export class Voice {
     if (this.held) { this.queue.unshift(item); return; }
     const start = item.start ?? 0;
     const c = { ...item, start, at: 0 };
+    // voices placed in space, when the stereo engine is on; it falls back to the browser's speech
+    // for a sentence it could not get audio for
+    if (this.engine && !item.native) return this.#speakWith(this.engine, item, c, start);
     const u = new SpeechSynthesisUtterance(item.text.slice(start));
     const v = this.#resolve(item.identity);
     if (v) u.voice = v;
     u.pitch = item.identity?.pitch ?? 1;
     u.rate = item.identity?.rate ?? 1.05;
+    u.volume = item.identity?.volume ?? 1;
     c.u = u;
     // the guard only ever compares against words that left the speaker
     c.said = { text: "", at: Date.now() };
@@ -222,6 +247,41 @@ export class Voice {
     // a synthesiser left paused (Chrome does this after a tab sleeps) would take the utterance and never start it
     if (speechSynthesis.paused) speechSynthesis.resume();
     speechSynthesis.speak(u);
+  }
+
+  /** The same sentence through the stereo engine: words and end reported as the browser would. */
+  #speakWith(engine, item, c, start) {
+    const text = item.text.slice(start);
+    c.said = { text: "", at: Date.now() };
+    this.uttered.push(c.said);
+    this.current = c;
+    const h = engine.speak({
+      text,
+      identity: item.identity,
+      onWord: (i, len) => {
+        if (this.current !== c) return;
+        c.at = i;
+        c.said.text = c.text.slice(start, start + i + len);
+        this.onWord(c.text, start + i, len);
+      },
+      onEnd: (failed) => {
+        if (this.current !== c) return;
+        if (failed) {
+          // no audio for this one: say it with the browser instead, from the same place
+          this.current = null;
+          this.uttered = this.uttered.filter((x) => x !== c.said);
+          return this.#speak({ ...item, native: true });
+        }
+        this.#endUtterance(c, true);
+        this.current = null;
+        if (c.record) this.heard.push(c.text);
+        this.#next();
+      },
+    });
+    c.stop = () => h.stop();
+    this.onSentence(c.text, start, c.record);
+    // make the next sentences while this one plays, so there is no pause between them
+    for (const next of this.queue.slice(0, 3)) engine.prefetch?.(next.text.slice(next.start ?? 0), next.identity);
   }
 
   /**

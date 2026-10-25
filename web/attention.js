@@ -27,7 +27,7 @@ export const GAP_MS = 30_000;
 export const LATE_MS = 20_000;
 
 const BLOCKING = new Set(["permission", "question"]);
-const RANK = { permission: 0, question: 1, blocked: 2, failed: 3, finished: 4 };
+const RANK = { permission: 0, question: 1, blocked: 2, failed: 3, long: 4, finished: 5 };
 
 const norm = (t) => (t ?? "").toLowerCase().replace(/[^\w' ]/g, " ").replace(/\s+/g, " ").trim();
 
@@ -45,12 +45,16 @@ const YES_LEAD = /^(yes|yeah|yea|yep|yup|ya|sure|ok|okay|alright|all right|right
 const NO_LEAD = /^(no|nope|nah|deny|don't|dont|do not|refuse|never)\b/;
 const FILLER_WORDS = new Set(["yes", "yeah", "yea", "yep", "yup", "ya", "sure", "ok", "okay", "alright", "all", "right", "fine", "go", "ahead", "on", "please", "definitely", "absolutely", "of", "course", "mm", "hmm", "mhm", "uh", "huh", "tell", "me", "read", "it", "let's", "lets", "hear", "what", "is", "what's", "up", "does", "do", "he", "she", "they", "want", "need", "you", "thanks", "thank", "no", "nope", "nah", "deny", "don't", "dont", "not", "refuse", "never", "that", "this", "one", "then", "so", "well", "oh", "um", "the", "a", "just", "now", "sounds", "good", "great", "cool"]);
 
+// the deliberate word for something that cannot be undone: never a plain yes
+const CONFIRM = /^(confirm|confirmed|i confirm|confirm it|yes confirm|confirm yes|yes i confirm|go ahead confirm|allow it confirm|confirm allow)$/;
+
 /** What a short reply means, if it is one of the words the assistant listens for. */
 export function classify(text) {
   const raw = norm(text);
   if (/^(uh huh|mm hmm|mhm|uh hm)$/.test(raw)) return "yes";
   const t = raw.replace(/^((um|uh|hmm|so|well|oh|and|ah)\s+)+/, "");
   if (!t) return null;
+  if (CONFIRM.test(t)) return "confirm";
   if (ALWAYS.test(t) || /^(yes|yeah|sure|ok|okay)\b.*\b(always|every time|from now on)$/.test(t)) return "always";
   if (LATER.test(t)) return "later";
   if (SKIP.test(t)) return "skip";
@@ -107,7 +111,9 @@ export function headsUp(state, items, now) {
 /** How one item is put to the lead. Permissions and questions wait for an answer; news does not. */
 function present(state, item, now) {
   if (item.kind === "permission") {
-    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS }, say: [`${item.text.replace(/\.$/, "")}. Allow?`], actions: [] };
+    // a risky one says so, and asks for the deliberate word up front
+    const ask = item.risk ? `${item.text.replace(/\.$/, "")}. Say confirm to allow it, or no.` : `${item.text.replace(/\.$/, "")}. Allow?`;
+    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS }, say: [ask], actions: [] };
   }
   if (item.kind === "question") {
     return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS * 3 }, say: [`${item.text.replace(/\s*$/, "")} What should I tell ${item.name}?`], actions: [] };
@@ -143,14 +149,25 @@ export function review(state, items, now) {
 export function next(state, items, now) {
   const first = order(items)[0];
   if (!first) return { state: { ...state, mode: "normal", item: null }, say: ["Nobody's waiting on you."], actions: [] };
-  const r = present({ ...state, skipped: new Set() }, first, now);
+  const r = settled(present({ ...state, skipped: new Set() }, first, now));
   return { ...r, actions: [{ type: "focus", project: first.project }, ...r.actions] };
+}
+
+/** News is read and done with: after it there is nothing to wait for, so back to normal. */
+const settled = (r) => (r.state.mode === "awaiting" ? r : { ...r, state: { ...r.state, mode: "normal", item: null } });
+
+/**
+ * "Allow Rex" for something that cannot be undone: not granted yet. Ada says what it is and asks
+ * for "confirm", and the answer window opens on that very request.
+ */
+export function confirmFirst(state, item, now) {
+  return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS }, say: [`${item.text.replace(/\.$/, "")}. Say confirm to allow it, or no.`], actions: [] };
 }
 
 /** A request from the agent that has the floor: asked straight away. */
 export function urgent(state, item, now) {
   if (state.mode === "awaiting") return { state, say: [], actions: [] }; // one question at a time; it is next
-  return present(state, item, now);
+  return settled(present(state, item, now));
 }
 
 /**
@@ -162,7 +179,8 @@ export function heard(state, text, items, now) {
   const live = state.until >= now;
 
   if (state.mode === "headsUp") {
-    if (live && word === "yes") return review({ ...state, mode: "normal" }, items, now);
+    // once the agent the lead is talking to has spoken, a yes is an answer to it, not to Ada
+    if (live && word === "yes" && !state.floorSpoke) return review({ ...state, mode: "normal" }, items, now);
     if (live && (word === "no" || word === "later")) return { state: { ...state, mode: "normal" }, say: ["Okay."], actions: [] };
     // Talked straight over it, to someone else: that is not having heard it. Offer it again at
     // the next quiet moment, rather than leaving it marked as told.
@@ -187,8 +205,15 @@ export function heard(state, text, items, now) {
       const s = { ...state, skipped: new Set([...state.skipped, item.uid]) };
       return proceed(s, items, now);
     }
-    if (item.kind === "permission" && live) {
-      if (word === "yes") return proceed(state, items, now, ["Allowed."], [{ type: "grant", item, scope: "once" }]);
+    if (item.kind === "permission" && live && item.risk) {
+      // Cannot be undone: only "confirm" will do. A yes (or a cough heard as one) is asked again,
+      // and "always" is never given for something like this — it is allowed this once.
+      if (word === "confirm") return proceed(state, items, now, ["Confirmed. Allowed this once."], [{ type: "grant", item, scope: "once" }]);
+      if (word === "yes" || word === "always") return { state: { ...state, until: now + WINDOW_MS }, say: ["That one can't be undone. Say confirm to go ahead, or no."], actions: [] };
+      if (word === "no") return proceed(state, items, now, ["Denied."], [{ type: "deny", item }]);
+    }
+    if (item.kind === "permission" && live && !item.risk) {
+      if (word === "yes" || word === "confirm") return proceed(state, items, now, ["Allowed."], [{ type: "grant", item, scope: "once" }]);
       if (word === "always") return proceed(state, items, now, [`Allowed, and ${item.name} won't ask about that again.`], [{ type: "grant", item, scope: "always" }]);
       if (word === "no") return proceed(state, items, now, ["Denied."], [{ type: "deny", item }]);
     }

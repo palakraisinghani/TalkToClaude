@@ -7,7 +7,7 @@
  * always naming the project first so you know who it is about before you know what it is.
  */
 
-export type NotifyKind = "permission" | "question" | "finished" | "failed" | "blocked";
+export type NotifyKind = "permission" | "question" | "finished" | "failed" | "blocked" | "long";
 
 export interface Notification {
   project: string; // project id
@@ -56,10 +56,47 @@ export function describeAction(tool: string, input: any): { phrase: string; deta
     }
     case "WebSearch":
       return { phrase: "search the web", detail: String(i.query ?? "") };
+    case "ExitPlanMode":
+      // the plan itself is long and goes on screen as a card to review, not into the notice
+      return { phrase: "start on its plan", detail: "" };
+    case "AskUserQuestion": {
+      const q = Array.isArray(i.questions) ? i.questions : [];
+      return { phrase: q.length > 1 ? `ask you ${q.length} questions` : "ask you a question", detail: q.map((x: any) => String(x?.question ?? "")).join("\n") };
+    }
     default:
       return { phrase: permissionPhrase(tool), detail: JSON.stringify(i).slice(0, 400) };
   }
 }
+
+/**
+ * Is this action one that is hard to take back? Deleting, overwriting history, publishing,
+ * deploying, changing permissions or ownership widely, piping a download into a shell, wiping a
+ * database. Those need the lead to say "confirm", not just "yes": a misheard yes, or a cough heard
+ * as one, must never be enough to approve something that cannot be undone. Returns why, in words
+ * for the ear, or null for an ordinary action.
+ */
+export function riskOf(tool: string, input: any): string | null {
+  if (tool !== "Bash") return null;
+  const c = String(input?.command ?? "");
+  for (const [re, why] of RISKS) if (re.test(c)) return why;
+  return null;
+}
+const RISKS: [RegExp, string][] = [
+  [/\brm\s+(-[a-z]*[rf][a-z]*\s+)+/i, "it deletes files for good"],
+  [/\bgit\s+push\b.*(--force\b|-f\b|--force-with-lease)/i, "it rewrites history on the remote"],
+  [/\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s|restore\s+(--worktree|-W|\.))/i, "it throws away uncommitted work"],
+  [/\bgit\s+(branch\s+-D|tag\s+-d|push\s+\S+\s+--delete|push\s+\S+\s+:)/i, "it deletes a branch or tag"],
+  [/\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b|\bgem\s+push\b/i, "it publishes a package"],
+  [/\b(deploy|vercel\s+--prod|fly\s+deploy|terraform\s+(apply|destroy)|kubectl\s+(delete|apply)|helm\s+(install|upgrade|uninstall))\b/i, "it changes something live"],
+  [/\bsudo\b/i, "it runs as the administrator"],
+  [/\b(chmod|chown)\s+-R\b/i, "it changes permissions on many files"],
+  [/(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b/i, "it runs a script straight from the internet"],
+  [/\b(drop\s+(table|database|schema)|truncate\s+table|delete\s+from\s+\w+\s*(;|$))/i, "it wipes data in a database"],
+  [/\b(mkfs|dd\s+if=|diskutil\s+erase)/i, "it can erase a disk"],
+  [/\bdocker\s+(system\s+prune|volume\s+rm|rm\s+-f)/i, "it removes containers or their data"],
+  [/\bkill(all)?\s+-9\b|\bpkill\b/i, "it force-stops running programs"],
+  [/>\s*~?\/?(\.(zshrc|bashrc|profile|gitconfig)|etc\/)/i, "it overwrites a system or shell settings file"],
+];
 
 /**
  * The narrowest permission rule that allows exactly this action and nothing else: one command,
@@ -98,14 +135,18 @@ export function sayable(text: string, max = 240): string {
   return cut.replace(/[\s,;:—-]+\S*$/, "").replace(/[,;:—-]+$/, "") + ".";
 }
 
-export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string; full?: string } = {}): Notification {
+export function notification(kind: NotifyKind, name: string, project: string, info: { tool?: string; message?: string; said?: string[]; question?: string; phrase?: string; full?: string; risk?: string; minutes?: number } = {}): Notification {
   const summary = summarise(info.said ?? []);
   let text: string;
   let detail: string;
   if (kind === "permission") {
     const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
-    text = `${name} wants to ${phrase}.`;
+    // the risk is said in plain words, so it is heard before anyone says yes
+    text = info.risk ? `${name} wants to ${phrase}. Careful: ${info.risk}.` : `${name} wants to ${phrase}.`;
     detail = info.message || `${name} wants to ${phrase}.`;
+  } else if (kind === "long") {
+    text = `${name} has been working on this for ${info.minutes ?? 25} minutes. Say ${name} to check in, or stop ${name} to end it.`;
+    detail = "";
   } else if (kind === "blocked") {
     const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
     text = `The safety check stopped ${name} from trying to ${phrase}. ${name} will carry on without it.`;
@@ -131,7 +172,7 @@ export function notification(kind: NotifyKind, name: string, project: string, in
  * Permission requests and questions come first, because they are the ones that are blocking.
  */
 export function batch(pending: Notification[]): string {
-  const rank = { permission: 0, question: 1, blocked: 2, failed: 3, finished: 4 } as const;
+  const rank = { permission: 0, question: 1, blocked: 2, failed: 3, long: 4, finished: 5 } as const;
   const sorted = [...pending].sort((a, b) => rank[a.kind] - rank[b.kind] || a.at - b.at);
   if (sorted.length === 1) return sorted[0].text;
   const head = sorted.slice(0, 2).map((n) => n.text.replace(/\.$/, ""));

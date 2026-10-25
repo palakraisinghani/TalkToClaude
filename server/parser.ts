@@ -10,10 +10,12 @@ export type ParsedEvent =
   /** A control tag such as <open path="…"/> or <delegate to="rex">…</delegate>. */
   | { kind: "action"; name: ActionName; attrs: Record<string, string>; body: string; text: string };
 
-export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close";
+export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close" | "handoff" | "voice" | "call" | "setting" | "remember" | "forget";
 
 type Section = "none" | "say" | "screen" | "question";
-const OPEN = /<(say|screen|question)>|<(open|new|switch|delegate|park|close)(?=[\s/>])/;
+export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget"];
+/** How far an action tag may run without closing before it is taken to be ordinary text. */
+const ACTION_MAX = 600;
 // long enough to hold back the start of the longest tag name, "<question" or "<delegate "
 const HOLD = 12;
 
@@ -29,10 +31,20 @@ function attrs(raw: string): Record<string, string> {
  * the agent working aloud and goes to the behind-the-scenes feed.
  * <question> is spoken like <say>, and also reported whole, so a project working in the
  * background can put a question to the person through the central voice.
- * Action tags are only produced by the central agent; they are passed on whole, never spoken.
+ * Action tags are passed on whole, never spoken. Most are the central agent's; any agent may use
+ * <handoff>, to put the lead through to someone else with a note.
  * If no <say> appears all turn, end() yields one fallback event with the outside text.
  */
 export class ReplyParser {
+  private open: RegExp;
+  /**
+   * `actions`: which control tags this agent may use. The central agent uses them all; a project
+   * agent only <handoff>, so one that talks about "the <close> button" is just talking.
+   */
+  constructor({ actions = ALL_ACTIONS }: { actions?: ActionName[] } = {}) {
+    const names = actions.length ? `|<(${actions.join("|")})(?=[\\s/>])` : "";
+    this.open = new RegExp(`<(say|screen|question)>${names}`);
+  }
   private buf = "";
   private outside = "";
   private section: Section = "none";
@@ -45,7 +57,7 @@ export class ReplyParser {
     const out: ParsedEvent[] = [];
     for (;;) {
       if (this.section === "none") {
-        const m = OPEN.exec(this.buf);
+        const m = this.open.exec(this.buf);
         let chunk: string;
         if (m) chunk = this.buf.slice(0, m.index);
         else {
@@ -61,6 +73,7 @@ export class ReplyParser {
           // an action tag is only acted on once it is complete, so wait for the rest of it
           const action = this.action(m[2] as ActionName);
           if (!action) break;
+          if (action.kind === "aside") this.outside += action.text;
           out.push(action);
           continue;
         }
@@ -99,17 +112,29 @@ export class ReplyParser {
     return out;
   }
 
-  /** A complete action tag at the start of the buffer, consumed; null while it is still arriving. */
+  /**
+   * A complete action tag at the start of the buffer, consumed; null while it is still arriving.
+   * One that never closes — too long, or speech starting before its end — was not an action after
+   * all: its opening is let go as ordinary text, so nothing after it is held back for ever.
+   */
   private action(name: ActionName): ParsedEvent | null {
+    const notAnAction = (upTo: number): ParsedEvent => {
+      const text = this.buf.slice(0, upTo);
+      this.buf = this.buf.slice(upTo);
+      return { kind: "aside", text };
+    };
     const gt = this.buf.indexOf(">");
-    if (gt < 0) return null;
+    if (gt < 0) return this.buf.length > ACTION_MAX ? notAnAction(1) : null;
     const head = this.buf.slice(1 + name.length, gt);
     let body = "";
     let end = gt + 1;
     if (!head.trimEnd().endsWith("/")) {
       const close = `</${name}>`;
       const i = this.buf.indexOf(close, end);
-      if (i < 0) return null;
+      if (i < 0) {
+        const speech = this.buf.indexOf("<say>", end);
+        return speech >= 0 || this.buf.length - end > ACTION_MAX ? notAnAction(end) : null;
+      }
       body = this.buf.slice(end, i).trim();
       end = i + close.length;
     }

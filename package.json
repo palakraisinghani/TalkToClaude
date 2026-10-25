@@ -10,7 +10,9 @@
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@ricky0123/vad-web": "^0.0.31",
+    "mermaid": "^11.17.2",
     "onnxruntime-web": "^1.29.0",
+    "sharp": "^0.34.5",
     "ws": "^8.18.0"
   }
 }

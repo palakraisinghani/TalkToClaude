@@ -79,3 +79,26 @@ test("call context", () => {
   assert.equal(s, '[call · audio-only · you are on the line] [cut in: the user said pause 6s ago; the last thing they heard was "The cache is stale because"; they did not hear 2 more sentences: "It never expires. Want the fix?"; your previous work was stopped]');
   assert.match(formatContext("visual", { kind: "interrupted" }), /talked over you/);
 });
+
+test("any agent's handoff tag is passed on whole, with its note", () => {
+  const p = new ReplyParser();
+  const ev = [...p.feed('<say>Putting you through to Ada.</say><handoff to="Ada">wants to switch to Juno</handoff>'), ...p.end()];
+  const h = ev.find((e) => e.kind === "action");
+  assert.equal(h?.name, "handoff");
+  assert.equal(h?.attrs.to, "Ada");
+  assert.equal(h?.body.trim(), "wants to switch to Juno");
+});
+
+test("a project agent talking about a <close> button is just talking", () => {
+  const p = new ReplyParser({ actions: ["handoff"] });
+  const ev = [...p.feed("I'll wire up the <close> button handler. <say>Done, the button works.</say>"), ...p.end()];
+  assert.deepEqual(of(ev, "sentence"), ["Done, the button works."]);
+  assert.equal(ev.filter((e) => e.kind === "action").length, 0);
+});
+
+test("an action tag that never closes is let go as text instead of swallowing the turn", () => {
+  const p = new ReplyParser();
+  const ev = [...p.feed("Next I <open path=\"x\"> it. <say>All set.</say>"), ...p.end()];
+  assert.deepEqual(of(ev, "sentence"), ["All set."]);
+  assert.match(of(ev, "aside").join(""), /<open path="x">/);
+});

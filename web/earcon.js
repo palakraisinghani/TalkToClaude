@@ -83,4 +83,31 @@ export class Earcons {
     });
     await new Promise((r) => setTimeout(r, 900));
   }
+
+  /**
+   * Short cues for teaching a name, so it can be done without looking: a soft rising blip when a
+   * try was kept, a low tone when it was not, and a rising three-note figure when the name is
+   * learned. All far shorter than anything the mic would take for speech.
+   */
+  async cue(kind) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (ctx.state === "suspended") { try { await ctx.resume(); } catch { return; } }
+    const notes = { kept: [[880, 0], [1175, 0.07]], dropped: [[330, 0], [294, 0.09]], learned: [[784, 0], [988, 0.09], [1319, 0.18]] }[kind];
+    if (!notes) return;
+    const t0 = ctx.currentTime + 0.01;
+    const out = ctx.createGain();
+    out.gain.value = kind === "dropped" ? 0.06 : 0.05;
+    out.connect(ctx.destination);
+    for (const [hz, at] of notes) {
+      const osc = ctx.createOscillator(), g = ctx.createGain();
+      osc.type = kind === "dropped" ? "triangle" : "sine";
+      osc.frequency.value = hz;
+      g.gain.setValueAtTime(0, t0 + at);
+      g.gain.linearRampToValueAtTime(1, t0 + at + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.11);
+      osc.connect(g); g.connect(out);
+      osc.start(t0 + at); osc.stop(t0 + at + 0.13);
+    }
+  }
 }

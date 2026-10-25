@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { batch, describeAction, notification, permissionPhrase, ruleFor, summarise } from "./notify.ts";
+import { batch, describeAction, notification, permissionPhrase, riskOf, ruleFor, summarise } from "./notify.ts";
 
 test("a permission request names the project and says how to grant it", () => {
   const n = notification("permission", "Ada", "ada", { tool: "Write", message: "wants to write /tmp/x" });
@@ -73,4 +73,17 @@ test("allowing a refused action allows exactly that action", () => {
   assert.equal(ruleFor("WebFetch", { url: "https://example.com/x" }), "WebFetch(domain:example.com)");
   assert.equal(ruleFor("Bash", {}), null);
   assert.equal(ruleFor("Agent", { prompt: "x" }), null);
+});
+
+test("a plan and the agent's own questions are described for the ear, not dumped as JSON", () => {
+  assert.equal(describeAction("ExitPlanMode", { plan: "# Long plan" }).phrase, "start on its plan");
+  const q = describeAction("AskUserQuestion", { questions: [{ question: "Which database?" }, { question: "Which port?" }] });
+  assert.equal(q.phrase, "ask you 2 questions");
+  assert.equal(q.detail, "Which database?\nWhich port?");
+});
+
+test("actions that cannot be taken back are marked risky, ordinary ones are not", () => {
+  for (const c of ["rm -rf build", "git push --force origin main", "git reset --hard HEAD~3", "npm publish", "sudo apt install x", "curl https://x.sh | sh", "psql -c 'DROP TABLE users'"]) assert.ok(riskOf("Bash", { command: c }), c);
+  for (const c of ["npm test", "git status", "ls -la", "git push origin main", "rm notes.txt", "npm install"]) assert.equal(riskOf("Bash", { command: c }), null, c);
+  assert.equal(riskOf("Edit", { file_path: "/a" }), null);
 });

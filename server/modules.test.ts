@@ -23,3 +23,22 @@ test("every server and web module loads", async () => {
     await assert.doesNotReject(() => import(f), `${f} failed to load`);
   }
 });
+
+test("the page's browser-only modules at least parse", async () => {
+  // app.js, voice.js and listen.js need a browser to run, but a syntax slip should still fail here,
+  // not as a blank page
+  const { execFileSync } = await import("node:child_process");
+  const web = join(fileURLToPath(new URL(".", import.meta.url)), "..", "web");
+  for (const f of ["app.js", "voice.js", "listen.js", "stereo.js"]) {
+    assert.doesNotThrow(() => execFileSync(process.execPath, ["--check", join(web, f)], { stdio: "pipe" }), `${f} does not parse`);
+  }
+});
+
+test("Whisper's inventions are dropped: stock phrases, loops, and too many words for the clip", async () => {
+  const { unhallucinate } = await import("./stt.ts");
+  assert.equal(unhallucinate("This is the first time I've ever seen a video."), "");
+  assert.equal(unhallucinate("I mean, I mean, I mean, I mean, I mean"), "I mean");
+  assert.equal(unhallucinate("The second the Kichurda and then some more words here", [], 0.8), "");
+  assert.equal(unhallucinate("Ada, run the tests", [], 1.5), "Ada, run the tests");
+  assert.equal(unhallucinate("Ada, Juno, Milo", ["Ada", "Juno", "Milo"]), "");
+});

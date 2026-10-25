@@ -2,99 +2,238 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Buddy · your team</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#d77757">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ClaudeCall · lead your Claude team by voice</title>
 <style>
   :root {
-    --bg: #f6f4ee; --card: #ffffff; --ink: #1d1c1a; --muted: #6f6d67; --line: #e5e1d6;
-    --accent: #d97757; --listen: #3d7be0; --think: #c99a2e; --speak: #2f9e6a; --danger: #d64545;
+    color-scheme: light;
+    /* Claude's warm paper, with Claude Code's orange as the one accent */
+    --bg: #f5f4ed; --panel: #faf9f5; --card: #ffffff; --ink: #141413; --muted: #6b6a64; --faint: #9c9a92; --line: #e6e3d8; --line2: #efede5;
+    --accent: #d77757; --accent-ink: #b85c3d; --accent-soft: rgb(215 119 87 / .14);
+    --listen: #3d7be0; --think: #c99a2e; --speak: #2f9e6a; --danger: #d64545;
+    --shadow: 0 1px 2px rgb(0 0 0 / .04), 0 4px 16px rgb(0 0 0 / .05);
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* chart series, in a fixed order that holds up for colour-blind readers (validated palette) */
+    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+    --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-    --bg: #161514; --card: #201f1d; --ink: #f1efe8; --muted: #a29f97; --line: #34322e;
+  @media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    /* Claude's dark: warm charcoal, never blue-black */
+    --bg: #1f1e1d; --panel: #262624; --card: #30302e; --ink: #faf9f5; --muted: #b7b5ad; --faint: #85837c; --line: #42413d; --line2: #383835;
+    --accent: #d77757; --accent-ink: #e8906f; --accent-soft: rgb(215 119 87 / .2);
+    --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 6px 20px rgb(0 0 0 / .3);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
   } }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    /* Claude's dark: warm charcoal, never blue-black */
+    --bg: #1f1e1d; --panel: #262624; --card: #30302e; --ink: #faf9f5; --muted: #b7b5ad; --faint: #85837c; --line: #42413d; --line2: #383835;
+    --accent: #d77757; --accent-ink: #e8906f; --accent-soft: rgb(215 119 87 / .2);
+    --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 6px 20px rgb(0 0 0 / .3);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
-  button { font: inherit; }
-  header { display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  header h1 { font-size: 17px; margin: 0; letter-spacing: .2px; }
-  header h1 small { font-weight: 500; color: var(--muted); font-size: 13px; margin-left: 6px; }
-  .pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-  .pill.ok { color: var(--speak); border-color: color-mix(in srgb, var(--speak) 40%, transparent); }
-  .pill.warn { color: var(--think); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; }
+  .ic { flex: none; display: block; }
   .spacer { flex: 1; }
-  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
-  .toggle input { accent-color: var(--accent); }
-  header select, header input[type=number] { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; font: inherit; font-size: 12px; }
-  header input[type=number] { width: 3.4em; }
 
-  main { flex: 1; display: grid; grid-template-columns: 300px minmax(420px, 1fr) minmax(320px, .9fr); min-height: 0; }
-  body.audio main { grid-template-columns: 300px 1fr; }
-  body.audio #feedWrap { display: none; }
+  /* ---------- controls shared everywhere ---------- */
+  /* a toggle switch: a checkbox drawn as a track and a knob */
+  input.sw { appearance: none; -webkit-appearance: none; margin: 0; flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; transition: background .18s; }
+  input.sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .25); transition: transform .18s; }
+  input.sw:checked { background: var(--accent); }
+  input.sw:checked::after { transform: translateX(14px); }
+  input.sw:focus-visible, .iconbtn:focus-visible, .btn:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* selected text is plainly visible in both themes */
+  ::selection { background: rgb(215 119 87 / .38); color: inherit; }
+  #canvasScroll, #feed { -webkit-user-select: text; user-select: text; }
+  a { color: var(--accent-ink); }
+  .iconbtn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+  .iconbtn:hover:not(:disabled) { background: var(--line2); color: var(--ink); }
+  .iconbtn:disabled { opacity: .4; cursor: default; }
+  .chipbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  .chipbtn:hover:not(:disabled) { border-color: var(--faint); }
+  .chipbtn:disabled { opacity: .45; cursor: default; }
+  .chipbtn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--line2); }
+  .seg button { border: none; background: transparent; padding: 4px 11px; border-radius: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--card); color: var(--accent-ink); box-shadow: 0 1px 2px rgb(0 0 0 / .12); font-weight: 600; }
+  select.model { appearance: none; -webkit-appearance: none; font: inherit; font-size: 11.5px; color: var(--muted); background: var(--line2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center; border: 1px solid transparent; border-radius: 7px; padding: 2px 22px 2px 8px; cursor: pointer; max-width: 140px; }
+  select.model:hover { border-color: var(--line); color: var(--ink); }
+  .pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .pill.ok { color: var(--ink); border-color: var(--line); } .pill.ok::before { background: var(--speak); box-shadow: 0 0 0 3px color-mix(in srgb, var(--speak) 20%, transparent); }
+  .pill.warn { color: var(--think); } .pill.warn::before { background: var(--think); }
 
-  /* ---------- the head of the team, and the hands raised to her ---------- */
-  #head { min-width: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: color-mix(in srgb, var(--card) 40%, var(--bg)); }
-  .sec { margin: 0; padding: 12px 14px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
-  .sec .count { margin-left: auto; font-variant-numeric: tabular-nums; }
-  .headcard { margin: 4px 10px 0; padding: 12px; border-radius: 14px; background: var(--card); border: 1.5px solid hsl(var(--hue) 55% 55% / .55); display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; cursor: pointer; position: relative; }
-  .headcard.on { box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .22); }
+  /* ---------- top bar ---------- */
+  header.top { display: flex; align-items: center; gap: 14px; padding: 8px 14px 8px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: .1px; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 8px; background: url(/icon.svg) center / cover no-repeat; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .brand small { font-weight: 500; color: var(--muted); font-size: 12.5px; }
+  .quick { display: flex; align-items: center; gap: 4px; }
+  .quick label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 5px 10px; border-radius: 10px; cursor: pointer; user-select: none; }
+  .quick label:hover { background: var(--line2); color: var(--ink); }
+  .quick label:has(input:checked) { color: var(--ink); }
+  .quick .sep { width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+
+  /* ---------- layout: team · stage · canvas · behind the scenes ---------- */
+  main { flex: 1; display: grid; grid-template-columns: 272px minmax(360px, 1fr) minmax(380px, 1.15fr) minmax(300px, .85fr); min-height: 0; }
+  body.audio main { grid-template-columns: 272px 1fr; }
+  body.audio .pane { display: none !important; }
+  .pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); }
+  .panehead { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); min-height: 50px; }
+  .panehead h2 { margin: 0; font-size: 13px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .panehead h2 .ic { color: var(--muted); }
+  .panehead .tabs { display: none; }
+  .sec { margin: 0; padding: 14px 14px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .sec .count { font-variant-numeric: tabular-nums; background: var(--line2); color: var(--ink); border-radius: 999px; padding: 0 7px; font-size: 11px; letter-spacing: 0; }
+  .sec .count:empty { display: none; }
+  .sec .iconbtn { margin-left: auto; width: 28px; height: 28px; }
+
+  /* ---------- left: the assistant, who is waiting, the team ---------- */
+  #head { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: var(--panel); }
+  .headcard { margin: 2px 10px 0; padding: 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); display: grid; grid-template-columns: 46px 1fr; gap: 12px; align-items: center; cursor: pointer; position: relative; transition: border-color .2s, box-shadow .2s; }
+  .headcard.on { border-color: hsl(var(--hue) 55% 55% / .8); box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .18); }
   .headcard .role { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: hsl(var(--hue) 45% 45%); font-weight: 700; }
-  .headcard .nm { font-size: 18px; font-weight: 700; line-height: 1.2; }
-  .headcard .sub { font-size: 12px; color: var(--muted); }
+  .headcard .nm { font-size: 17px; font-weight: 700; line-height: 1.2; display: flex; align-items: center; gap: 8px; }
+  .headcard .sub { font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .headcard .hfoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
   .headcard .listening { display: flex; gap: 3px; align-items: flex-end; height: 12px; margin-top: 4px; }
   .headcard .listening i { width: 3px; background: hsl(var(--hue) 55% 55%); border-radius: 2px; animation: eq 1.1s ease-in-out infinite; }
   .headcard .listening i:nth-child(2) { animation-delay: .15s; } .headcard .listening i:nth-child(3) { animation-delay: .3s; } .headcard .listening i:nth-child(4) { animation-delay: .45s; }
   body:not(.oncall) .headcard .listening i { animation: none; height: 3px; opacity: .4; }
   @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 12px; } }
-  .crown { position: absolute; top: -9px; left: 26px; font-size: 15px; }
 
-  .hands { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 16px; }
-  .hand { border-radius: 12px; border: 1px solid hsl(var(--hue, 18) 50% 55% / .55); background: var(--card); padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; animation: slidein .25s ease-out; }
-  .hand.permission { border-color: var(--think); box-shadow: inset 3px 0 0 var(--think); }
-  .hand.question { box-shadow: inset 3px 0 0 hsl(var(--hue) 55% 55%); }
+  #waitWrap { flex: none; max-height: 40%; overflow-y: auto; }
+  #waitWrap:has(.empty:not([style*="none"])) .sec { opacity: .75; }
+  .hands { display: flex; flex-direction: column; gap: 8px; padding: 0 10px 6px; }
+  .hand { border-radius: 12px; border: 1px solid var(--line); background: var(--card); padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; animation: slidein .25s ease-out; box-shadow: inset 3px 0 0 hsl(var(--hue, 18) 55% 55%); }
+  .hand.permission { border-color: color-mix(in srgb, var(--think) 55%, var(--line)); box-shadow: inset 3px 0 0 var(--think); }
   .hand.blocked, .hand.failed { box-shadow: inset 3px 0 0 var(--danger); }
   .hand.finished { box-shadow: inset 3px 0 0 var(--speak); }
   .hand.told { opacity: .85; }
   .hand .hh { display: flex; align-items: center; gap: 7px; font-size: 13px; }
-  .hand .hh .mini { width: 20px; height: 20px; font-size: 10px; }
   .hand .hh b { font-weight: 650; }
   .hand .hh .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
   .hand .hh .age { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .hand .what { font-size: 14px; }
+  .hand .what { font-size: 13.5px; }
   .hand pre { margin: 0; font-size: 11.5px; max-height: 90px; padding: 6px 8px; }
   .hand .why { font-size: 12px; color: var(--muted); }
   .hand .acts { display: flex; gap: 6px; flex-wrap: wrap; }
-  .hand .acts button { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .hand .acts button.yes { background: var(--speak); border-color: var(--speak); color: white; }
+  .hand .acts button { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  .hand .acts button.yes { background: var(--accent); border-color: var(--accent); color: white; }
   .hand .acts button.no { color: var(--danger); }
-  .hand .acts button:hover { filter: brightness(.95); }
   .hand form { display: flex; gap: 6px; width: 100%; }
   .hand form input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-  .empty { color: var(--muted); font-size: 12px; padding: 6px 4px; line-height: 1.5; }
+  .empty { color: var(--faint); font-size: 12px; padding: 2px 4px 6px; line-height: 1.45; }
   @keyframes slidein { from { transform: translateY(-6px); opacity: 0; } }
 
-  /* ---------- the meeting room: whoever has the floor, and the table ---------- */
-  #room { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 18px 20px 14px; gap: 14px; align-items: center; }
-  .stage { width: min(640px, 100%); border-radius: 22px; padding: 18px 20px 16px; background: radial-gradient(120% 90% at 50% 0%, hsl(var(--hue) 70% 60% / .16), transparent 70%), var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; transition: background .5s; }
+  #table { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px 10px 16px; }
+  .seat { position: relative; text-align: left; border-radius: 14px; border: 1px solid var(--line); background: var(--card); padding: 10px 11px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+  .seat:hover { border-color: hsl(var(--hue) 45% 55% / .6); }
+  .seat.on { border-color: hsl(var(--hue) 55% 50%); box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .2); }
+  .seat.talking { transform: translateX(3px); box-shadow: 0 6px 22px hsl(var(--hue) 60% 50% / .2); }
+  .seat .top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .seat .top > div { min-width: 0; flex: 1; }
+  .av { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: white; background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 70% 68%), hsl(var(--hue) 55% 45%)); }
+  .av.mini { width: 20px; height: 20px; font-size: 10px; }
+  .av.big { width: 46px; height: 46px; font-size: 20px; }
+  .av::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 55%); opacity: 0; }
+  .seat[data-state="working"] .av::after { opacity: .8; animation: ripple 1.6s ease-out infinite; }
+  .seat.talking .av::after { opacity: 1; border-color: var(--speak); animation: ripple 1s ease-out infinite; }
+  .seat[data-state="parked"], .seat[data-state="cold"] { opacity: .7; }
+  .seat[data-state="parked"] .av { filter: grayscale(1); }
+  .seat .nm { font-weight: 700; font-size: 15px; line-height: 1.2; }
+  .seat .st { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .seat .st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .seat[data-state="working"] .st::before { background: var(--think); }
+  .seat[data-state="warm"] .st::before { background: var(--speak); }
+  .seat.on .st { color: hsl(var(--hue) 50% 42%); font-weight: 650; } .seat.on .st::before { background: hsl(var(--hue) 55% 50%); }
+  .seat .doing { font-size: 12.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
+  .seat .doing:empty { display: none; }
+  .seat .doing.live::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--hue) 60% 50%); margin-right: 6px; vertical-align: 1px; animation: breathe 1.2s ease-in-out infinite; }
+  .seat .foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .seat .meta { font-size: 10.5px; color: var(--faint); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .seat .handup { position: absolute; top: -7px; right: -5px; width: 22px; height: 22px; border-radius: 50%; background: var(--think); color: white; display: none; place-items: center; box-shadow: 0 2px 6px rgb(0 0 0 / .2); }
+  .seat.raised .handup { display: grid; animation: wave 1.6s ease-in-out infinite; }
+  .seat.raised { border-color: color-mix(in srgb, var(--think) 60%, var(--line)); }
+  @keyframes wave { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } }
+  .seat .tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+  .seat:hover .tools, .seat:focus-within .tools { opacity: 1; }
+  .seat .tools .iconbtn { width: 26px; height: 26px; border-radius: 8px; background: var(--card); }
+  .steps { display: flex; gap: 3px; margin-top: 2px; }
+  .steps span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); position: relative; }
+  .steps span.done { background: hsl(var(--hue) 55% 55%); }
+  .steps span.now { background: linear-gradient(90deg, hsl(var(--hue) 55% 55%), var(--line)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+  .steplabel { font-size: 10.5px; color: var(--muted); }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+  .seat.add { border-style: dashed; flex-direction: row; align-items: center; justify-content: center; color: var(--muted); gap: 10px; min-height: 64px; box-shadow: none; }
+  .seat.add .plus { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--line2); }
+  .seat.add:hover { color: var(--ink); }
+
+  /* ---------- the stage: whoever has the floor ---------- */
+  #room { min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 18px 18px 14px; gap: 12px; align-items: center; }
+  .stage { width: min(560px, 100%); border-radius: 22px; padding: 18px 20px 16px; background: radial-gradient(120% 80% at 50% 0%, hsl(var(--hue) 70% 60% / .14), transparent 70%), var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; gap: 8px; position: relative; transition: background .5s; }
   .stage .floor { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
-  .stage .who { display: flex; align-items: baseline; gap: 10px; }
-  .stage .who .nm { font-size: 24px; font-weight: 700; }
-  .stage .who .rl { font-size: 13px; color: var(--muted); font-family: var(--mono); }
-  .orb-wrap { position: relative; width: 170px; height: 170px; display: grid; place-items: center; margin: 2px 0; }
-  .orb { width: 124px; height: 124px; border-radius: 50%; display: grid; place-items: center; color: white; font-size: 44px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.2); background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 75% 72%), hsl(var(--hue) 60% 50%) 60%, hsl(var(--hue) 55% 32%)); box-shadow: 0 0 60px hsl(var(--hue) 60% 50% / .38); transition: transform .12s ease, filter .3s, background .4s; }
-  .ring { position: absolute; inset: 14px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 50%); opacity: 0; }
+  .stage .who { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .stage .who .nm { font-size: 24px; font-weight: 750; letter-spacing: -.2px; }
+  .stage .who .rl { font-size: 12.5px; color: var(--muted); font-family: var(--mono); }
+  .orb-wrap { position: relative; width: 196px; height: 196px; display: grid; place-items: center; margin: 0; perspective: 600px; }
+  .orb { width: 122px; height: 122px; border-radius: 50%; display: grid; place-items: center; color: white; font-size: 44px; font-weight: 700; text-shadow: 0 1px 6px rgba(0,0,0,.2); background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 75% 72%), hsl(var(--hue) 60% 50%) 60%, hsl(var(--hue) 55% 32%)); box-shadow: 0 0 60px hsl(var(--hue) 60% 50% / .35); transition: transform .12s ease, filter .3s, background .4s; }
+  /* ripples: four rings spread out from the orb, staggered, coloured by what is happening */
+  .orb-wrap .ring { position: absolute; inset: 22px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 55%); opacity: 0; pointer-events: none; }
+  .orb-wrap .r2 { animation-delay: var(--gap, .6s) !important; } .orb-wrap .r3 { animation-delay: calc(var(--gap, .6s) * 2) !important; } .orb-wrap .r4 { animation-delay: calc(var(--gap, .6s) * 3) !important; }
+  .halo { position: absolute; inset: 16px; border-radius: 50%; background: radial-gradient(circle, hsl(var(--hue) 70% 60% / .35), transparent 68%); opacity: 0; transition: opacity .4s, transform .15s; pointer-events: none; }
   [data-state="asleep"] .orb { filter: grayscale(1) brightness(.85); box-shadow: none; }
   [data-state="listening"] .orb { animation: breathe 3.2s ease-in-out infinite; }
+  [data-state="listening"] .ring { --gap: 1s; border-width: 1.5px; animation: ripple 4s ease-out infinite; }
+  [data-state="listening"] .halo { opacity: .6; animation: breathe 3.2s ease-in-out infinite; }
   [data-state="hearing"] .orb { transform: scale(calc(1 + var(--level, 0) * .14)); }
-  [data-state="hearing"] .ring { border-color: var(--listen); animation: ripple 1.2s ease-out infinite; }
-  [data-state="thinking"] .ring { border-color: var(--think); border-style: dashed; opacity: .9; animation: spin 6s linear infinite; }
+  [data-state="hearing"] .ring { --gap: .35s; border-color: var(--listen); animation: ripple 1.4s ease-out infinite; }
+  [data-state="hearing"] .halo { opacity: 1; background: radial-gradient(circle, color-mix(in srgb, var(--listen) 45%, transparent), transparent 68%); transform: scale(calc(1 + var(--level, 0) * .5)); }
+  [data-state="thinking"] .r1 { inset: 14px; border-color: var(--think); border-style: dashed; opacity: .9; animation: spin 6s linear infinite; }
+  [data-state="thinking"] .r2, [data-state="thinking"] .r3, [data-state="thinking"] .r4 { --gap: .9s; border-color: var(--think); animation: ripple 2.7s ease-out infinite; }
+  [data-state="thinking"] .halo { opacity: .5; background: radial-gradient(circle, color-mix(in srgb, var(--think) 35%, transparent), transparent 68%); }
   [data-state="speaking"] .orb.beat { transform: scale(1.06); }
-  [data-state="speaking"] .ring { border-color: var(--speak); animation: ripple 1.6s ease-out infinite; }
+  [data-state="speaking"] .ring { --gap: .45s; border-color: var(--accent); border-width: 2.5px; animation: ripple 1.8s ease-out infinite; }
+  [data-state="speaking"] .halo { opacity: 1; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent), transparent 68%); }
   [data-state="paused"] .orb { filter: saturate(.3); }
   @keyframes breathe { 50% { transform: scale(1.04); filter: brightness(1.08); } }
-  @keyframes ripple { 0% { transform: scale(.85); opacity: .7; } 100% { transform: scale(1.25); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .orb, .ring, .seat .av::after, .headcard .listening i { animation: none !important; } }
+  @keyframes ripple { 0% { transform: scale(.82); opacity: .75; } 100% { transform: scale(1.6); opacity: 0; } }
+  /* faces: drawn characters; they blink, and on the orb the mouth moves with each word */
+  .av svg.avatar { width: 94%; height: 94%; }
+  .orb svg.avatar { width: 88%; height: 88%; filter: drop-shadow(0 2px 4px rgb(0 0 0 / .15)); }
+  .guest svg.avatar { width: 92%; height: 92%; }
+  .avatar .eyes { transform-box: fill-box; transform-origin: center; animation: blink 5.5s infinite; }
+  .avatar .mouth { transform-box: fill-box; transform-origin: center top; transition: transform .08s; }
+  .orb.beat .mouth { transform: scaleY(2.2) scaleX(1.1); }
+  [data-state="speaking"] .orb .mouth { animation: talk .32s ease-in-out infinite alternate; }
+  @keyframes blink { 0%, 95%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
+  @keyframes talk { to { transform: scaleY(1.9); } }
+  @media (prefers-reduced-motion: reduce) { .orb, .ring, .halo, .seat .av::after, .headcard .listening i, .guest, .avatar .eyes, .avatar .mouth { animation: none !important; } }
+  .orb.swap { animation: swap .5s ease-in-out; }
+  @keyframes swap { 0% { transform: scale(1) rotateY(0); } 45% { transform: scale(.7) rotateY(90deg); filter: brightness(1.3); } 100% { transform: scale(1) rotateY(0); } }
+  .stage .who.swap { animation: slidename .45s ease-out; }
+  @keyframes slidename { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  #fromTag { text-transform: none; letter-spacing: 0; margin-left: 4px; padding: 1px 8px; border-radius: 999px; background: hsl(var(--from-hue, 18) 60% 55% / .15); color: hsl(var(--from-hue, 18) 45% 40%); transition: opacity .6s; }
+  #fromTag:empty { display: none; }
+  #fromTag.fade { opacity: 0; }
+  .guest { position: absolute; bottom: 10px; right: 8px; width: 44px; height: 44px; border-radius: 50%; display: none; place-items: center; color: white; font-weight: 700; font-size: 17px; background: radial-gradient(circle at 35% 30%, hsl(var(--guest-hue) 75% 72%), hsl(var(--guest-hue) 55% 42%)); border: 3px solid var(--card); box-shadow: 0 0 0 0 hsl(var(--guest-hue) 60% 55% / .6); animation: guestpulse 1.2s ease-out infinite; }
+  .guest.on { display: grid; }
+  @keyframes guestpulse { to { box-shadow: 0 0 0 12px hsl(var(--guest-hue) 60% 55% / 0); } }
+  .backbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; border: 1px solid hsl(var(--back-hue, 18) 50% 55% / .6); background: hsl(var(--back-hue, 18) 60% 55% / .1); cursor: pointer; }
+  .backbtn:hover { background: hsl(var(--back-hue, 18) 60% 55% / .22); }
+  .backbtn[hidden] { display: none; }
   #stateLabel { font-weight: 600; letter-spacing: .3px; text-transform: lowercase; color: var(--muted); font-size: 13px; }
   .nring { position: absolute; inset: 2px; border-radius: 50%; border: 3px solid var(--think); opacity: 0; pointer-events: none; }
   body.has-notices .nring { opacity: 1; animation: nring 1.8s ease-in-out infinite; }
@@ -106,94 +245,111 @@
   .cap { background: var(--bg); border-radius: 12px; padding: 7px 12px; min-height: 38px; font-size: 14px; }
   .cap .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
   .cap.you .txt { color: var(--muted); }
-  .cap.buddy .txt .now { background: color-mix(in srgb, var(--speak) 25%, transparent); border-radius: 4px; }
+  .cap.buddy .txt .now { background: var(--accent-soft); color: var(--accent-ink); border-radius: 4px; }
   .cap.buddy .txt .todo { color: var(--muted); }
   #paused { display: none; width: 100%; border: 1px dashed var(--think); background: color-mix(in srgb, var(--think) 10%, transparent); border-radius: 12px; padding: 6px 12px; font-size: 13px; }
   body.is-paused #paused { display: block; }
-  .controls { display: flex; gap: 12px; align-items: center; }
-  .btn { width: 50px; height: 50px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 18px; cursor: pointer; display: grid; place-items: center; }
+  .controls { display: flex; gap: 14px; align-items: center; margin-top: 2px; }
+  .btn { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); display: grid; place-items: center; cursor: pointer; transition: background .15s, transform .1s; }
+  .btn:hover:not(:disabled) { background: var(--line2); }
+  .btn:active:not(:disabled) { transform: scale(.96); }
   .btn:disabled { opacity: .4; cursor: default; }
-  .btn.on { background: var(--ink); color: var(--bg); }
-  .btn.call { width: 62px; height: 62px; background: var(--speak); color: white; border: none; font-size: 24px; }
-  .btn.call.end { background: var(--danger); }
-  form#typeForm { width: 100%; display: flex; gap: 8px; }
-  form#typeForm input { flex: 1; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+  .btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.call { width: 62px; height: 62px; background: var(--accent); color: white; border: none; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent); }
+  .btn.call:hover { background: color-mix(in srgb, var(--accent) 88%, black); }
+  .btn.call.end { background: var(--danger); box-shadow: 0 6px 18px color-mix(in srgb, var(--danger) 40%, transparent); }
+  .btn.call.end:hover { background: color-mix(in srgb, var(--danger) 88%, black); }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  form#typeForm { width: 100%; display: flex; gap: 6px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 3px 3px 3px 12px; }
+  form#typeForm:focus-within { border-color: var(--faint); }
+  form#typeForm .ic { color: var(--faint); }
+  form#typeForm input { flex: 1; min-width: 0; padding: 6px 4px; border: none; background: transparent; color: var(--ink); font: inherit; outline: none; }
+  .stage .sub { font-size: 12px; color: var(--muted); }
+  details.cmds { width: min(560px, 100%); border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 0 14px; }
+  details.cmds summary { cursor: pointer; padding: 10px 0; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; list-style: none; color: var(--muted); }
+  details.cmds summary::-webkit-details-marker { display: none; }
+  details.cmds summary .ic:last-child { margin-left: auto; transition: transform .2s; }
+  details.cmds[open] summary .ic:last-child { transform: rotate(180deg); }
+  .cmdgrid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; padding: 2px 0 14px; font-size: 12.5px; }
+  .cmdgrid dt { font-weight: 600; } .cmdgrid dd { margin: 0; color: var(--muted); }
+  .cmdgrid kbd { font-family: var(--mono); font-size: 11.5px; background: var(--line2); border-radius: 5px; padding: 0 5px; color: var(--ink); }
 
-  /* the table: one seat per project agent, each its own Claude session */
-  .tablehead { width: min(820px, 100%); display: flex; align-items: center; gap: 10px; }
-  .tablehead h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
-  .tablehead .acts { margin-left: auto; display: flex; gap: 6px; }
-  .tablehead .acts button { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .tablehead .acts button:disabled { opacity: .45; cursor: default; }
-  #table { width: min(820px, 100%); display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-  .seat { position: relative; text-align: left; border-radius: 16px; border: 1px solid var(--line); background: var(--card); padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; min-height: 132px; transition: border-color .2s, box-shadow .2s, transform .2s; }
-  .seat:hover { border-color: hsl(var(--hue) 45% 55% / .7); }
-  .seat.on { border-color: hsl(var(--hue) 55% 50%); box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .25); }
-  .seat.talking { transform: translateY(-2px); box-shadow: 0 6px 22px hsl(var(--hue) 60% 50% / .25); }
-  .seat .top { display: flex; align-items: center; gap: 10px; }
-  .av { position: relative; flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: white; background: radial-gradient(circle at 35% 30%, hsl(var(--hue) 70% 68%), hsl(var(--hue) 55% 45%)); }
-  .av.mini { width: 22px; height: 22px; font-size: 11px; }
-  .av.big { width: 52px; height: 52px; font-size: 22px; }
-  .av::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid hsl(var(--hue) 60% 55%); opacity: 0; }
-  .seat[data-state="working"] .av::after { opacity: .8; animation: ripple 1.6s ease-out infinite; }
-  .seat.talking .av::after { opacity: 1; border-color: var(--speak); animation: ripple 1s ease-out infinite; }
-  .seat[data-state="parked"], .seat[data-state="cold"] { opacity: .66; }
-  .seat[data-state="parked"] .av { filter: grayscale(1); }
-  .seat .nm { font-weight: 700; font-size: 16px; line-height: 1.2; }
-  .seat .st { font-size: 11px; color: var(--muted); }
-  .seat.on .st { color: hsl(var(--hue) 50% 42%); font-weight: 650; }
-  .seat .doing { font-size: 12.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; }
-  .seat .doing.live::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--hue) 60% 50%); margin-right: 6px; vertical-align: 1px; animation: breathe 1.2s ease-in-out infinite; }
-  .seat .meta { margin-top: auto; font-size: 10.5px; color: var(--muted); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .seat .handup { position: absolute; top: -10px; right: -6px; font-size: 22px; display: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.2)); }
-  .seat.raised .handup { display: block; animation: wave 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
-  .seat.raised { border-color: var(--think); }
-  @keyframes wave { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-14deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-6deg); } }
-  .seat .tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
-  .seat:hover .tools { opacity: 1; }
-  .seat .tools button { border: none; background: var(--bg); color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 11px; padding: 1px 5px; }
-  .seat .tools button:hover { color: var(--ink); }
-  .steps { display: flex; gap: 3px; margin-top: 2px; }
-  .steps span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); position: relative; }
-  .steps span.done { background: hsl(var(--hue) 55% 55%); }
-  .steps span.now { background: linear-gradient(90deg, hsl(var(--hue) 55% 55%), var(--line)); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
-  .steplabel { font-size: 10.5px; color: var(--muted); }
-  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-  .seat.add { border-style: dashed; align-items: center; justify-content: center; color: var(--muted); gap: 4px; }
-  .seat.add .plus { font-size: 28px; line-height: 1; }
-  .seat.add:hover { color: var(--ink); }
-  .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 640px; line-height: 1.55; }
+  /* ---------- canvas: what the agents show you ---------- */
+  #canvasFilters, #filters { display: flex; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; flex: none; }
+  #canvasFilters button, #filters button { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  #canvasFilters button .dot, #filters button .dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--hue) 60% 55%); }
+  #canvasFilters button.on, #filters button.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+  #canvasFilters button .n { font-size: 10.5px; background: var(--accent); color: white; border-radius: 999px; padding: 0 5px; }
+  .follow { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  #canvasScroll { flex: 1; overflow-y: auto; min-height: 0; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  #canvasEmpty { margin: auto; text-align: center; color: var(--faint); max-width: 300px; display: grid; justify-items: center; gap: 10px; font-size: 13px; line-height: 1.5; }
+  #canvasEmpty .ic { color: var(--line); }
+  #canvas { display: flex; flex-direction: column; gap: 14px; }
+  .art { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; animation: slidein .25s ease-out; scroll-margin: 14px; }
+  .art.flash { box-shadow: 0 0 0 3px hsl(var(--hue) 60% 55% / .35), var(--shadow); }
+  .art > header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line2); font-size: 12px; color: var(--muted); }
+  .art > header .ttl { color: var(--ink); font-weight: 650; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+  .art > header .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+  .art > .body { padding: 12px 14px; min-width: 0; overflow-wrap: anywhere; }
+  .art .screen { border: none; padding: 0; }
+  .art .screen .h1:first-child, .art .screen .h2:first-child { display: none; }
+  .art.needs { border-color: color-mix(in srgb, var(--think) 70%, var(--line)); }
+  .art .askcard { border: none; background: none; padding: 0; }
+  #canvasPlan:empty { display: none; }
+  .checklist { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 12px 14px; display: grid; gap: 8px; }
+  .checklist .ph { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; }
+  .checklist .ph small { margin-left: auto; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .checklist .bar { height: 5px; border-radius: 999px; background: var(--line2); overflow: hidden; }
+  .checklist .bar i { display: block; height: 100%; background: hsl(var(--hue) 55% 52%); border-radius: 999px; transition: width .4s; }
+  .checklist ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+  .checklist li { display: flex; gap: 8px; align-items: flex-start; }
+  .checklist li .box { flex: none; width: 16px; height: 16px; margin-top: 2px; border-radius: 5px; border: 1.5px solid var(--faint); display: grid; place-items: center; color: white; }
+  .checklist li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+  .checklist li.done .box { background: var(--speak); border-color: var(--speak); }
+  .checklist li.now { font-weight: 600; }
+  .checklist li.now .box { border-color: var(--think); box-shadow: inset 0 0 0 3px var(--card); background: var(--think); }
 
-  /* new project dialog */
-  dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink); padding: 18px; width: min(460px, 92vw); }
-  dialog::backdrop { background: rgba(0,0,0,.35); }
-  dialog h3 { margin: 0 0 10px; }
-  dialog label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  dialog input, dialog textarea { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-  dialog textarea { min-height: 84px; resize: vertical; }
-  dialog .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
-  dialog .tabs button, dialog .row button { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  dialog .tabs button.on { background: var(--ink); color: var(--bg); }
-  dialog .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
-  dialog .row .go { background: var(--accent); color: white; border-color: var(--accent); }
-  dialog .check { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--ink); font-size: 13px; }
+  /* charts drawn from ```chart blocks */
+  figure.chart { margin: 4px 0 10px; display: grid; gap: 6px; }
+  figure.chart figcaption { font-weight: 650; font-size: 13px; }
+  figure.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  figure.chart .grid { stroke: var(--line2); stroke-width: 1; } figure.chart .grid.zero { stroke: var(--faint); }
+  figure.chart .tick { fill: var(--muted); font-size: 11px; font-family: system-ui, sans-serif; }
+  figure.chart .direct { fill: var(--ink); font-size: 11px; font-family: system-ui, sans-serif; }
+  figure.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  figure.chart .dot { stroke: var(--card); stroke-width: 2; }
+  figure.chart .hit { fill: transparent; }
+  figure.chart .hit:hover { fill: color-mix(in srgb, var(--ink) 5%, transparent); }
+  figure.chart .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  figure.chart .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  figure.chart .legend i { width: 10px; height: 10px; border-radius: 3px; }
+  figure.chart details.data summary { font-size: 11.5px; color: var(--muted); cursor: pointer; }
+  .chart.pending { font-size: 12px; color: var(--muted); font-style: italic; padding: 8px 0; }
+  .s1 { --c: var(--series-1); } .s2 { --c: var(--series-2); } .s3 { --c: var(--series-3); } .s4 { --c: var(--series-4); }
+  .s5 { --c: var(--series-5); } .s6 { --c: var(--series-6); } .s7 { --c: var(--series-7); } .s8 { --c: var(--series-8); }
+  figure.chart .mark, figure.chart .dot { fill: var(--c); } figure.chart .line { stroke: var(--c); } figure.chart .legend i { background: var(--c); }
+  figure.chart .fill { fill: var(--c); opacity: .16; }
+  figure.chart .grid.faint { stroke: var(--line2); stroke-dasharray: 2 4; }
+  figure.chart .axis { fill: var(--muted); font-size: 11.5px; font-family: system-ui, sans-serif; }
+  figure.chart .legend i.round { border-radius: 50%; }
+  figure.chart .mark:hover, figure.chart .dot:hover { filter: brightness(1.12); }
 
-  /* behind the scenes */
-  #feedWrap { min-width: 0; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: color-mix(in srgb, var(--card) 55%, var(--bg)); }
-  #feedWrap h2 { margin: 0; padding: 12px 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
-  #feed { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
-  .turn { min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  /* ---------- behind the scenes ---------- */
+  #feed { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; padding: 12px 14px 40px; display: flex; flex-direction: column; gap: 10px; }
+  .turn { min-width: 0; background: var(--card); border: 1px solid var(--line); border-left: 3px solid hsl(var(--hue, 18) 55% 55% / .55); border-radius: 12px; padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; }
   .turn.stale { opacity: .6; }
-  .turn .q { overflow-wrap: anywhere; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
-  .turn .q .st { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .turn .q { overflow-wrap: anywhere; font-weight: 600; display: flex; gap: 8px; align-items: baseline; font-size: 13.5px; }
+  .turn .q .st { margin-left: auto; font-size: 11.5px; color: var(--muted); font-weight: 400; white-space: nowrap; }
+  .turn .who { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: hsl(var(--hue, 18) 45% 45%); font-weight: 700; }
+  .turn .q .who, .turn .q .bg { flex: none; white-space: nowrap; text-align: left; }
+  .turn .bg { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; font-weight: 600; }
   .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  details.think { font-size: 13px; color: var(--muted); font-style: italic; }
+  details.think { font-size: 12.5px; color: var(--muted); font-style: italic; }
   details.think summary { cursor: pointer; font-style: normal; }
   details.think div { white-space: pre-wrap; tab-size: 4; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
   .aside { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: pre-wrap; tab-size: 4; overflow-wrap: anywhere; }
-  /* tools: one line when closed, verbatim input and output when opened */
-  .tool { font-family: var(--mono); font-size: 12px; border-radius: 8px; background: color-mix(in srgb, var(--line) 45%, transparent); min-width: 0; }
+  .tool { font-family: var(--mono); font-size: 12px; border-radius: 8px; background: color-mix(in srgb, var(--line) 40%, transparent); min-width: 0; }
   .tool summary { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; cursor: pointer; list-style: none; min-width: 0; }
   .tool summary::-webkit-details-marker { display: none; }
   .tool .lbl { white-space: nowrap; }
@@ -202,164 +358,486 @@
   .tool .io { margin: 0 8px 8px; max-height: 280px; }
   .tool .io.in { border-left: 3px solid var(--listen); }
   .tool .io.out { border-left: 3px solid var(--line); }
-  .said { border-left: 3px solid var(--speak); padding-left: 10px; overflow-wrap: anywhere; }
-  .screen { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .tool .io .del { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+  .tool .io .add { color: var(--speak); background: color-mix(in srgb, var(--speak) 10%, transparent); }
+  .said { border-left: 3px solid var(--accent); padding-left: 10px; overflow-wrap: anywhere; font-size: 13.5px; }
+  .said.quiet { opacity: .62; border-left-style: dashed; }
+  .said.quiet::after { content: " (not spoken aloud)"; color: var(--muted); font-size: 11px; }
+  .turn .heardas { font-size: 11.5px; color: var(--faint); margin-top: -4px; overflow-wrap: anywhere; }
+  .oncanvas { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid hsl(var(--hue, 18) 50% 55% / .5); background: hsl(var(--hue, 18) 60% 55% / .08); cursor: pointer; max-width: 100%; }
+  .oncanvas span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .err { color: var(--danger); font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; font-style: italic; padding: 0 2px; }
+  .note.problem { color: var(--danger); font-style: normal; }
+  .actchip { font-size: 12px; font-family: var(--mono); border: 1px dashed hsl(var(--hue, 18) 50% 55%); border-radius: 8px; padding: 4px 8px; }
+  .actchip b { color: hsl(var(--hue, 18) 45% 45%); }
+
+  /* markdown, wherever it appears */
+  .screen { min-width: 0; overflow-wrap: anywhere; }
   .screen p { margin: 0 0 8px; }
   .screen ul, .screen ol { margin: 0 0 8px; padding-left: 1.4em; }
-  .screen .h { font-weight: 600; margin: 8px 0 4px; } .screen .h1, .screen .h2 { font-size: 16px; }
-  .screen .tbl { overflow-x: auto; margin-bottom: 8px; }
-  .screen table { border-collapse: collapse; font-size: 13px; }
-  .screen th, .screen td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
-  /* code keeps every space and newline; long lines scroll inside the block instead of wrapping */
+  .screen .h { font-weight: 650; margin: 10px 0 4px; } .screen .h1, .screen .h2 { font-size: 16px; } .screen .h3 { font-size: 14.5px; }
+  .screen .tbl, figure.chart .tbl { overflow-x: auto; margin-bottom: 8px; }
+  .screen table, figure.chart table { border-collapse: collapse; font-size: 13px; }
+  .screen th, .screen td, figure.chart th, figure.chart td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
   pre { background: var(--bg); padding: 8px 10px; border-radius: 8px; overflow: auto; font: 12.5px/1.45 var(--mono); white-space: pre; tab-size: 4; margin: 0 0 8px; overflow-wrap: normal; }
   pre code { background: none; padding: 0; font: inherit; white-space: inherit; }
   .screen code { font-family: var(--mono); background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 12.5px; }
-  .err { color: var(--danger); font-size: 13px; }
-  .note { color: var(--muted); font-size: 12px; font-style: italic; padding: 0 2px; }
-  /* a project's colour follows it everywhere: roster row, orb, turn card, notification */
-  .turn { border-left: 3px solid hsl(var(--hue, 18) 55% 55% / .55); }
-  .turn .who { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: hsl(var(--hue, 18) 45% 45%); font-weight: 700; }
-  .said.quiet { opacity: .62; border-left-style: dashed; }
-  .said.quiet::after { content: " (not spoken aloud)"; color: var(--muted); font-size: 11px; }
-  .notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; border: 1px solid hsl(var(--hue, 18) 50% 55% / .5); background: hsl(var(--hue, 18) 60% 55% / .08); border-radius: 10px; padding: 7px 10px; }
-  .notice.permission { border-color: var(--think); background: color-mix(in srgb, var(--think) 12%, transparent); }
-  .notice.failed { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-  .notice .allow { margin-left: auto; font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .notice .allow:hover { background: var(--ink); color: var(--bg); }
+  img.pic { max-width: 100%; max-height: 420px; border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; display: block; margin: 4px 0; background: var(--bg); }
+  .pics { display: flex; flex-wrap: wrap; gap: 8px; }
+  .pics img.pic { max-width: calc(50% - 4px); max-height: 180px; margin: 0; }
+  /* media slots: a loading card, then the picture, video or player; a clear note if it fails */
+  .media { display: block; margin: 6px 0 10px; max-width: 100%; }
+  .media.loading { min-height: 110px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12.5px; background: var(--bg); }
+  .media.failed { display: flex; gap: 8px; align-items: flex-start; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); background: color-mix(in srgb, var(--danger) 6%, transparent); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+  .media.failed .ic { color: var(--danger); margin-top: 2px; }
+  .media .mcap { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .media img.pic { margin: 0; }
+  /* a picture's corner button: copy, or download for a video */
+  .mwrap { position: relative; display: inline-block; max-width: 100%; vertical-align: top; }
+  .mwrap > img.pic, .mwrap > video { display: block; position: relative; height: auto; }
+  /* the tiny preview, blurred, holds the place until the picture arrives, then fades out */
+  .mwrap .ph { position: absolute; inset: 0; border-radius: 10px; background-size: cover; background-position: center; filter: blur(14px) saturate(1.2); transform: scale(1.04); overflow: hidden; opacity: 0; transition: opacity .3s; }
+  .mwrap.pending .ph { opacity: 1; }
+  .mwrap.pending > img.pic { opacity: 0; }
+  .mwrap > img.pic { transition: opacity .3s; }
+  .mbtn { position: absolute; right: 8px; bottom: 8px; width: 30px; height: 30px; border-radius: 9px; border: 1px solid rgb(255 255 255 / .25); background: rgb(20 20 19 / .62); color: #fff; display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(6px); opacity: .85; transition: opacity .15s, transform .1s; }
+  .mwrap > video + .mbtn { bottom: 52px; } /* clear of the video's own controls */
+  .mbtn:hover { opacity: 1; transform: scale(1.05); }
+  .mbtn.done { background: var(--speak); border-color: var(--speak); }
+  .mbtn.fail { background: var(--danger); border-color: var(--danger); }
+  .mbtn[data-tip]::after, .codecopy[data-tip]::after, .artcopy[data-tip]::after { content: attr(data-tip); position: absolute; right: 0; bottom: calc(100% + 6px); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 7px; background: var(--ink); color: var(--bg); }
+  .art > header .artcopy { width: 26px; height: 26px; position: relative; }
+  .art pre { position: relative; }
+  .codecopy { position: absolute; top: 6px; right: 6px; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--muted); display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .art pre:hover .codecopy, .codecopy.done { opacity: 1; }
+  @media (hover: none) { .codecopy { opacity: .8; } }
+  .codecopy.done { color: var(--speak); }
+  .selcopy { position: fixed; z-index: 50; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: none; background: var(--ink); color: var(--bg); box-shadow: 0 4px 14px rgb(0 0 0 / .25); cursor: pointer; }
+  .selcopy.done { background: var(--speak); color: #fff; }
+  video.vid { display: block; max-width: 100%; max-height: 460px; border-radius: 10px; background: #000; }
+  iframe.yt { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 10px; background: #000; }
+  .lightbox { position: fixed; inset: 0; z-index: 100; background: rgb(0 0 0 / .78); display: grid; place-items: center; cursor: zoom-out; padding: 24px; }
+  .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; box-shadow: 0 10px 40px rgb(0 0 0 / .5); }
 
-  #feedWrap h2 { flex: none; }
-  #filters { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  #filters button { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
-  #filters button .dot { width: 8px; height: 8px; border-radius: 50%; background: hsl(var(--hue) 60% 55%); }
-  #filters button.on { color: var(--ink); border-color: var(--ink); }
-  .turn .q .who, .turn .q .bg { flex: none; white-space: nowrap; text-align: left; }
-  .turn .bg { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; font-weight: 600; }
-  .actchip { font-size: 12px; font-family: var(--mono); border: 1px dashed hsl(var(--hue, 18) 50% 55%); border-radius: 8px; padding: 4px 8px; }
-  .actchip b { color: hsl(var(--hue, 18) 45% 45%); }
-  .note.problem { color: var(--danger); font-style: normal; }
+  /* decisions: a paused action, a plan to review, the agent's own questions */
+  .askcard { border: 1.5px solid var(--think); background: color-mix(in srgb, var(--think) 7%, var(--card)); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .art.askcard > .body { display: flex; flex-direction: column; gap: 8px; }
+  .askcard .head { font-weight: 650; }
+  .askcard .why { color: var(--muted); font-size: 12.5px; }
+  .askcard pre { margin: 0; max-height: 200px; }
+  .askcard.plan .screen { max-height: 460px; overflow-y: auto; }
+  .askcard textarea, .askcard input { font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); resize: vertical; width: 100%; }
+  .askcard .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .askcard button { font-size: 12.5px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  .askcard button.yes { background: var(--accent); border-color: var(--accent); color: white; }
+  .askcard button.no { color: var(--danger); }
+  .askcard button:disabled { opacity: .45; cursor: default; }
+  .askcard .qbox { display: flex; flex-direction: column; gap: 6px; }
+  .askcard .tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; padding: 1px 6px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+  .askcard .opts { display: flex; flex-direction: column; gap: 4px; }
+  .askcard button.opt { text-align: left; border-radius: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .askcard button.opt small { color: var(--muted); font-size: 11.5px; }
+  .askcard button.opt.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .askcard.settled { border-color: var(--line); background: var(--card); }
+  .askcard .verdict { font-size: 12px; font-weight: 600; color: var(--speak); }
+  .askcard.refused .verdict { color: var(--danger); }
 
+  /* ---------- dialogs: new agent, settings ---------- */
+  dialog { border: 1px solid var(--line); border-radius: 18px; background: var(--card); color: var(--ink); padding: 20px; width: min(480px, 92vw); box-shadow: 0 20px 60px rgb(0 0 0 / .25); }
+  dialog::backdrop { background: rgb(0 0 0 / .35); backdrop-filter: blur(2px); }
+  dialog h3 { margin: 0 0 14px; font-size: 17px; }
+  dialog label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  dialog input:not(.sw), dialog textarea, dialog select:not(.model) { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  dialog textarea { min-height: 80px; resize: vertical; }
+  dialog .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 4px; }
+  dialog .row button { padding: 7px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); cursor: pointer; }
+  dialog .row .go { background: var(--accent); color: white; border-color: var(--accent); }
+  dialog .row button:disabled { opacity: .4; cursor: default; }
+  dialog small { color: var(--muted); font-size: 11.5px; min-height: 1em; }
+  dialog .opt { font-size: 10.5px; color: var(--faint); font-weight: 400; margin-left: 4px; }
+  .pathrow { display: flex; gap: 6px; }
+  .pathrow input { flex: 1; min-width: 0; }
+  .pathrow button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); cursor: pointer; white-space: nowrap; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* settings slides in from the right */
+  dialog.drawer { margin: 0 0 0 auto; height: 100vh; max-height: 100vh; width: min(400px, 94vw); border-radius: 18px 0 0 18px; border-right: none; padding: 0; animation: drawin .22s ease-out; }
+  @keyframes drawin { from { transform: translateX(30px); opacity: 0; } }
+  .drawer .dh { display: flex; align-items: center; padding: 14px 14px 12px 20px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--card); z-index: 1; }
+  .drawer .dh h3 { margin: 0; }
+  .drawer .group { padding: 14px 20px 6px; }
+  .drawer .group h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); }
+  .setting { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line2); cursor: pointer; }
+  .setting:last-child { border-bottom: none; }
+  .setting .si { width: 32px; height: 32px; flex: none; border-radius: 9px; background: var(--line2); display: grid; place-items: center; color: var(--muted); }
+  .setting .st2 { flex: 1; min-width: 0; display: grid; }
+  .setting .st2 b { font-weight: 600; font-size: 13.5px; }
+  .setting .st2 small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .setting input[type=number] { width: 4.2em; font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); text-align: center; }
+  .modelrow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line2); }
+  .modelrow b { flex: 1; font-size: 13.5px; font-weight: 600; }
+  .modelrow small { color: var(--muted); font-weight: 400; font-size: 11.5px; margin-left: 6px; }
+  .modelrow select.model { font-size: 12.5px; padding: 4px 24px 4px 10px; max-width: 170px; }
+
+  #staleBar { display: flex; align-items: center; gap: 10px; padding: 7px 10px 7px 16px; background: color-mix(in srgb, var(--think) 18%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--think) 45%, var(--line)); font-size: 13px; }
+  #staleBar #staleText { flex: 1; }
+  #staleBar .iconbtn { width: 28px; height: 28px; }
+  #teachNudge { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 12px; border-radius: 12px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); font-size: 13px; text-align: left; }
+  #teachNudge #teachNudgeText { flex: 1; min-width: 200px; }
+  #teachNudge .acts { display: flex; gap: 6px; }
+  /* teaching how you say a name */
+  dialog.teach { width: min(420px, 92vw); text-align: center; }
+  dialog.teach .tface { margin: 0 auto 8px; width: 64px; height: 64px; }
+  dialog.teach h3 { margin: 4px 0; }
+  dialog.teach p { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  dialog.teach .dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  dialog.teach .dots i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); transition: background .2s, transform .2s; }
+  dialog.teach .dots i.on { background: var(--accent); transform: scale(1.15); }
+  dialog.teach .dots { flex-direction: column; align-items: center; gap: 6px; }
+  dialog.teach .dots small { color: var(--muted); font-size: 12px; }
+  .tbar { width: 220px; height: 8px; border-radius: 999px; background: var(--line2); overflow: hidden; }
+  dialog.teach .tbar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .35s; transform: none; }
+  dialog.teach .tbar.done i { background: var(--speak); }
+  .dots.listening .tbar { box-shadow: 0 0 0 3px var(--accent-soft); animation: listenpulse 1.4s ease-in-out infinite; }
+  @keyframes listenpulse { 50% { box-shadow: 0 0 0 6px transparent; } }
+  .tcount { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); }
+  #teachHeard { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; text-align: left; font-size: 13px; }
+  #teachHeard li { display: grid; gap: 1px; padding: 6px 10px; border-radius: 9px; background: var(--bg); border-left: 3px solid var(--speak); }
+  #teachHeard li.bad { border-left-color: var(--danger); }
+  #teachHeard li.warn { border-left-color: var(--think); }
+  #renameBox { width: 100%; text-align: center; font-size: 18px !important; font-weight: 600; }
+  #teachHeard li span { color: var(--muted); font-size: 12px; }
+  dialog.teach .row { justify-content: center; }
+  .headcard .htools { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+  .headcard:hover .htools, .headcard:focus-within .htools { opacity: 1; }
+  .headcard .htools .iconbtn { width: 26px; height: 26px; border-radius: 8px; background: var(--card); }
   #gate { position: fixed; inset: 0; z-index: 10; display: none; place-items: center; background: var(--bg); padding: 24px; }
   body.locked #gate { display: grid; }
   body.locked main, body.locked header { visibility: hidden; }
-  #gate .box { width: min(360px, 100%); text-align: center; display: grid; gap: 12px; }
+  #gate .box { width: min(360px, 100%); text-align: center; display: grid; gap: 12px; justify-items: center; }
   #gate h2 { margin: 0; font-size: 20px; }
   #gate p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-  #gate input { font: inherit; font-family: var(--mono); font-size: 18px; letter-spacing: 3px; text-align: center; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
-  #gate button { font: inherit; padding: 9px; border-radius: 10px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  #gate input { width: 100%; font: inherit; font-family: var(--mono); font-size: 18px; letter-spacing: 3px; text-align: center; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  #gate button { width: 100%; font: inherit; padding: 10px; border-radius: 12px; border: none; background: var(--accent); color: white; cursor: pointer; }
   #gateMsg { color: var(--think); min-height: 1.2em; font-size: 13px; }
-  #speakerLine b { color: var(--ink); }
 
+  /* narrower screens: canvas and behind the scenes share one column, as tabs */
+  @media (max-width: 1500px) {
+    main { grid-template-columns: 260px minmax(340px, 1fr) minmax(380px, 1.1fr); }
+    .pane { grid-column: 3; grid-row: 1; }
+    body:not(.show-feed) #feedWrap, body.show-feed #canvasWrap { display: none; }
+    .panehead h2 { display: none; }
+    .panehead .tabs { display: inline-flex; }
+    .tabs button .badge { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: none; }
+    .tabs button.fresh .badge { display: inline-block; }
+  }
+  @media (max-width: 1050px) {
+    main, body.audio main { grid-template-columns: 1fr; grid-template-rows: auto auto 70vh; overflow-y: auto; }
+    #head { max-height: 38vh; border-bottom: 1px solid var(--line); }
+    .pane { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--line); }
+    .quick label span.lbl { display: none; }
+    .brand small { display: none; }
+  }
 
-  /* the team, as a vertical list down the left; it scrolls when the team outgrows the screen */
-  #head { overflow: hidden; }
-  #head .sec .plus { margin-left: 6px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 17px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
-  #head .sec .plus:hover:not(:disabled) { background: var(--ink); color: var(--bg); }
-  #head .sec .plus:disabled { opacity: .4; cursor: default; }
-  #table { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 2px 10px 16px; width: auto; }
-  #table .seat { min-height: 0; padding: 10px 11px; }
-  #table .seat .doing { min-height: 0; }
-  #table .seat.talking { transform: translateX(3px); }
-  #table .seat.add { min-height: 70px; flex-direction: row; gap: 8px; }
-  #room { justify-content: flex-start; }
-  .stage { width: min(680px, 100%); }
-  .pills { display: flex; gap: 6px; }
-  .pills button { font-size: 12px; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
-  .pills button:disabled { opacity: .45; cursor: default; }
-  #waitWrap { flex: none; max-height: 42%; overflow-y: auto; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--think) 4%, transparent); }
-  #waitWrap .hands { padding-top: 2px; }
-  .pathrow { display: flex; gap: 6px; }
-  .pathrow input { flex: 1; min-width: 0; }
-  .pathrow button { padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; white-space: nowrap; }
-  dialog small { color: var(--muted); font-size: 11.5px; min-height: 1em; }
-  dialog .opt { font-size: 10.5px; color: var(--muted); font-weight: 400; margin-left: 4px; }
-  @media (max-width: 1200px) {
-    main { grid-template-columns: 280px 1fr; grid-template-rows: 1fr auto; }
-    #feedWrap { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--line); height: 42vh; }
+  /* ---------- phone: one section at a time, a tab bar at the bottom ---------- */
+  #phoneNav { display: none; }
+  @media (hover: none) {
+    /* no hover on a touch screen: the small tools on each card are always there */
+    .seat .tools, .headcard .htools { opacity: 1; }
   }
-  @media (max-width: 780px) {
-    main, body.audio main { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
-    #head { border-right: none; border-bottom: 1px solid var(--line); max-height: 38vh; }
-    #feedWrap { min-height: 50vh; height: auto; }
+  @media (max-width: 700px) {
+    html, body { height: 100dvh; }
+    body { overflow: hidden; }
+    header.top { padding: 6px 8px 6px 12px; gap: 8px; padding-top: max(6px, env(safe-area-inset-top)); }
+    .brand { font-size: 15px; gap: 8px; }
+    .brand small { display: none; }
+    #ears { font-size: 0; padding: 0; border: none; gap: 0; }
+    #ears::before { width: 9px; height: 9px; }
+    .quick { gap: 0; }
+    .quick label { padding: 6px; gap: 6px; }
+    .quick label span.lbl, .quick .sep { display: none; }
+    main, body.audio main { display: block; position: relative; flex: 1; min-height: 0; overflow: hidden; }
+    main > * { position: absolute; inset: 0; display: none !important; border: none !important; }
+    body.tab-call #room, body.tab-team #head, body.tab-canvas #canvasWrap, body.tab-feed #feedWrap { display: flex !important; }
+    body.audio.tab-canvas #canvasWrap, body.audio.tab-feed #feedWrap { display: flex !important; }
+    #room { padding: 10px 10px 14px; gap: 10px; overflow-y: auto; }
+    .stage { border-radius: 18px; padding: 12px 12px 14px; gap: 6px; }
+    .stage .who .nm { font-size: 21px; }
+    .stage .who .rl { display: none; }
+    .orb-wrap { width: 168px; height: 168px; }
+    .orb { width: 108px; height: 108px; font-size: 38px; }
+    .controls { gap: 10px; }
+    .btn { width: 50px; height: 50px; }
+    .btn.call { width: 66px; height: 66px; }
+    .cap { font-size: 13.5px; }
+    form#typeForm input { font-size: 16px; } /* 16px keeps iOS from zooming in on focus */
+    #head { overflow-y: auto; padding-bottom: 12px; max-height: none; }
+    #waitWrap { max-height: none; overflow: visible; }
+    #table { overflow: visible; flex: none; }
+    .panehead { min-height: 46px; padding: 8px 12px; }
+    .panehead h2 { display: flex !important; }
+    .panehead .tabs { display: none !important; }
+    #canvasScroll { padding: 10px; }
+    #feed { padding: 10px 10px 30px; }
+    dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 40px); padding: 16px; }
+    dialog.drawer { width: 100vw; border-radius: 0; }
+    .two { grid-template-columns: 1fr; gap: 0; }
+    #phoneNav { display: grid; grid-template-columns: repeat(4, 1fr); flex: none; border-top: 1px solid var(--line); background: var(--panel); padding-bottom: env(safe-area-inset-bottom); }
+    body.audio #phoneNav button[data-tab="canvas"], body.audio #phoneNav button[data-tab="feed"] { display: none; }
+    body.audio #phoneNav { grid-template-columns: repeat(2, 1fr); }
+    #phoneNav button { position: relative; border: none; background: none; padding: 8px 0 7px; display: grid; justify-items: center; gap: 2px; font-size: 11px; color: var(--muted); cursor: pointer; }
+    #phoneNav button.on { color: var(--accent-ink); }
+    #phoneNav button.on .ic { stroke-width: 2.4; }
+    #phoneNav .dot { position: absolute; top: 6px; left: calc(50% + 9px); width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: none; }
+    #phoneNav button.fresh .dot { display: block; }
+    .nbadge2 { position: absolute; top: 3px; left: calc(50% + 7px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--think); color: #fff; font-size: 10.5px; display: grid; place-items: center; }
+    .nbadge2:empty { display: none; }
   }
+  .teachtip { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; text-align: center; }
+  select.pick { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .hand.risky { box-shadow: inset 3px 0 0 var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+  .hand .risk { font-size: 12px; color: var(--danger); font-weight: 600; }
+  .hand .acts button.yes.armed { background: var(--danger); border-color: var(--danger); }
+  @media (max-width: 700px) {
+    /* approving from the kitchen: answers big enough for a thumb */
+    .hand .acts button { font-size: 15px; padding: 9px 16px; min-height: 42px; }
+    .hand .acts button.yes, .hand .acts button.no { flex: 1; }
+  }
+  /* diagrams on the canvas */
+  .diagram { position: relative; margin: 10px 0; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); overflow: auto; text-align: center; }
+  .diagram.pending { color: var(--muted); font-size: 13px; font-style: italic; }
+  .diagram svg { max-width: 100%; height: auto; }
+  .diagram .dtools { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+  .diagram:hover .dtools { opacity: 1; }
+  .diagram .dtools button { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
+  .diagram.broken { text-align: left; }
+  .diagram .derr { color: var(--danger); font-size: 12.5px; margin-bottom: 6px; }
+  dialog.diagramdlg { width: 94vw; height: 92vh; max-width: none; max-height: none; padding: 18px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); }
+  dialog.diagramdlg .dbody { width: 100%; height: 100%; overflow: auto; display: grid; place-items: center; }
+  dialog.diagramdlg .dbody svg { max-width: 100%; max-height: 100%; height: auto; }
+  dialog.diagramdlg .dclose { position: absolute; top: 10px; right: 12px; border: none; background: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+  /* wide screens: behind the scenes folds to a rail, and the canvas can take most of the room */
+  .widebtn, .foldbtn, .feedrail { display: none; }
+  @media (min-width: 1501px) {
+    .widebtn, .foldbtn { display: inline-grid; }
+    body.feed-folded main { grid-template-columns: 272px minmax(340px, .9fr) minmax(480px, 1.9fr) 40px; }
+    body.feed-folded #feedWrap > :not(.feedrail) { display: none; }
+    body.feed-folded .feedrail { display: flex; }
+    body.canvas-wide main { grid-template-columns: 240px 360px minmax(560px, 1fr) 40px; }
+    body.canvas-wide #feedWrap > :not(.feedrail) { display: none; }
+    body.canvas-wide .feedrail { display: flex; }
+    body.canvas-wide #room .hint, body.canvas-wide #room .quickcmds { display: none; }
+    body.canvas-wide .widebtn { background: var(--ink); color: var(--bg); }
+  }
+  .feedrail { flex: 1; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: none; background: none; color: var(--muted); cursor: pointer; }
+  .feedrail:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 35%, transparent); }
+  .feedrail .lbl { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .5px; }
+  .feedrail .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); visibility: hidden; }
+  .feedrail.fresh .dot { visibility: visible; }
+  /* how easy a name will be to call out loud: advice, never a block */
+  .advice { display: block; font-size: 12px; line-height: 1.45; margin-top: 4px; color: var(--muted); }
+  .advice:empty { display: none; }
+  .advice .badge2 { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 0 6px; border-radius: 999px; margin-right: 6px; color: white; }
+  .advice.good .badge2 { background: var(--speak); } .advice.okay .badge2 { background: var(--think); } .advice.weak .badge2 { background: var(--danger); }
+  .advice button { font: inherit; font-size: 11.5px; margin-left: 6px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .advice .heard { display: block; margin-top: 3px; color: var(--ink); }
+  /* news an agent has that you have not looked at: a dot on its card, nothing louder */
+  .seat.has-news::after { content: "new"; position: absolute; top: 8px; left: 8px; font-size: 9.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 0 5px; border-radius: 999px; background: var(--speak); color: white; }
+  .seat.has-news[data-news="problem"]::after { content: "problem"; background: var(--danger); }
+  #holdBar { width: 100%; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 12px; padding: 8px 12px; font-size: 13.5px; display: flex; align-items: center; gap: 10px; justify-content: center; }
+  #holdBar[hidden] { display: none; }
+  #holdBar button { font: inherit; padding: 4px 14px; border-radius: 999px; border: none; background: var(--accent); color: white; cursor: pointer; }
+  .voicerow { display: grid; grid-template-columns: 22px 1fr; gap: 6px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+  .voicerow:first-child { border-top: none; }
+  .voicerow b { font-size: 13px; }
+  .voicerow .vctl { grid-column: 2; display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .voicerow .vctl label { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 6px; }
+  .voicerow select { font: inherit; font-size: 12.5px; padding: 3px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); min-width: 0; }
+  .voicerow input[type=range] { width: 100%; accent-color: var(--accent); }
+  .voicerow .play { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 2px 10px; cursor: pointer; font: inherit; font-size: 12px; }
 </style>
 </head>
 <body>
 <div id="gate">
   <form class="box" id="codeForm" autocomplete="off">
-    <h2>Buddy</h2>
-    <p>Buddy can edit files and run commands on the machine it is running on, so it asks for a code. It is printed in the terminal that started it, and this device will remember it. After ten wrong tries you will have to wait a little before trying again.</p>
+    <span class="brand"><span class="logo"></span></span>
+    <h2>ClaudeCall</h2>
+    <p>ClaudeCall can edit files and run commands on the machine it is running on, so it asks for a code. It is printed in the terminal that started it, and this device will remember it. After ten wrong tries you will have to wait a little before trying again.</p>
     <input id="codeBox" inputmode="latin" autocapitalize="off" spellcheck="false" placeholder="access code" aria-label="Access code">
     <button type="submit">Connect</button>
     <div id="gateMsg"></div>
   </form>
 </div>
-<header>
-  <h1>Buddy <small>you · Ada · your team</small></h1>
-  <span id="ears" class="pill">ears loading…</span>
+<div id="staleBar" hidden><span data-icon="sliders" data-size="15"></span><span id="staleText"></span><button class="iconbtn" id="staleClose" data-icon="x" data-size="14" title="Dismiss"></button></div>
+<header class="top">
+  <div class="brand"><span class="logo"></span>ClaudeCall <small>Lead your Claude team by voice</small></div>
+  <span id="ears" class="pill" title="Speech recognition runs on this computer">Voice starting…</span>
   <span class="spacer"></span>
-  <label class="toggle" title="Instant barge-in. Turn on when Buddy's voice cannot reach your mic."><input type="checkbox" id="phones"> headphones</label>
-  <label class="toggle" title="A short tone from each agent's own side before it speaks."><input type="checkbox" id="earcons" checked> earcons</label>
-  <label class="toggle" title="How readily the mic decides you are talking. Low ignores more coughs and background noise; you may need to speak up.">mic <select id="sensitivity"><option value="low">low (noisy room)</option><option value="normal" selected>normal</option><option value="high">high (quiet room)</option></select></label>
-  <label class="toggle" title="A soft chime the moment someone on the team needs you."><input type="checkbox" id="ringToggle" checked> ring</label>
-  <label class="toggle"><input type="checkbox" id="audioOnly"> audio-only</label>
-  <label class="toggle">sleep after <input id="sleep" type="number" min="2" max="60"> min</label>
+  <div class="quick">
+    <label title="Bluetooth earbuds or a headset: the agents' voices cannot reach your mic, so you can cut in instantly. Leave off when using the computer's speakers."><span data-icon="bluetooth"></span><span class="lbl">Bluetooth</span><input type="checkbox" class="sw" id="phones" role="switch"></label>
+    <label title="Voice only: hides the canvas and behind the scenes, and agents keep everything spoken."><span data-icon="waves"></span><span class="lbl">Audio only</span><input type="checkbox" class="sw" id="audioOnly" role="switch"></label>
+    <span class="sep"></span>
+    <button class="iconbtn" id="themeBtn" title="Switch between light and dark"></button>
+    <button class="iconbtn" id="settingsBtn" data-icon="sliders" title="Settings"></button>
+  </div>
 </header>
 <main>
   <aside id="head">
-    <h2 class="sec"><span>Your assistant</span></h2>
+    <h2 class="sec"><span>Assistant</span></h2>
     <div id="headCard"></div>
-    <h2 class="sec"><span>Your team</span><span class="count" id="projCount"></span><button class="plus" id="newBtn" title="Seat a new agent: name, folder, and its own instructions" disabled>+</button></h2>
+    <div id="waitWrap">
+      <h2 class="sec"><span>Waiting for you</span><span class="count" id="trayCount"></span></h2>
+      <div class="hands" id="tray"><div class="empty">Nobody yet. Requests for a yes, a no or an answer wait here.</div></div>
+    </div>
+    <h2 class="sec"><span>Team</span><span class="count" id="projCount"></span><button class="iconbtn" id="teachAllBtn" data-icon="mic" title="Teach how you say everyone's name" style="margin-left:auto"></button><button class="iconbtn" id="newBtn" data-icon="plus" title="Seat a new agent" disabled style="margin-left:0"></button></h2>
     <div id="table"></div>
   </aside>
   <section id="room">
     <div class="stage" id="call" data-state="asleep">
-      <div class="floor">talking with</div>
-      <div class="who"><span class="nm" id="onLine">Ada</span><span class="rl" id="onLineRole"></span></div>
-      <div class="orb-wrap"><div class="ring"></div><div class="nring"></div><div class="orb" id="orb">A</div><button class="nbadge" id="nbadge" title="Go through who is waiting"></button></div>
+      <div class="floor">talking with <span id="fromTag"></span></div>
+      <div class="who" id="onLineWho"><span class="nm" id="onLine">Ada</span><span class="rl" id="onLineRole"></span></div>
+      <div class="orb-wrap"><div class="halo"></div><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="ring r4"></div><div class="nring"></div><div class="orb" id="orb">A</div><button class="nbadge" id="nbadge" title="Go through who is waiting"></button><div class="guest" id="guest" title=""></div></div>
+      <button class="backbtn" id="backBtn" data-icon="back" hidden></button>
       <div id="stateLabel">asleep</div>
+      <div id="teachNudge" hidden><span data-icon="mic" data-size="16"></span><span id="teachNudgeText"></span><span class="acts"><button class="chipbtn on" id="teachNudgeGo">Teach names</button><button class="chipbtn" id="teachNudgeLater">Later</button></span></div>
       <div id="paused">Paused at “<span id="pausedAt"></span>”. Say <b>go on</b> to continue, or just ask something else.</div>
+      <div id="holdBar" hidden><span id="holdText">The call is on hold.</span> <button type="button" id="holdResume">Resume</button></div>
       <div class="captions">
         <div class="cap you"><div class="lbl">You</div><div class="txt" id="capYou">—</div></div>
         <div class="cap buddy"><div class="lbl" id="capWho">—</div><div class="txt" id="capBuddy">—</div></div>
       </div>
       <div class="controls">
-        <button class="btn" id="muteBtn" title="Mute mic" disabled>🎙️</button>
-        <button class="btn call" id="callBtn" title="Start the call">📞</button>
-        <button class="btn" id="pauseBtn" title="Pause" disabled>⏸</button>
-        <button class="btn" id="statusBtn" title="Roll call: where everyone is">☰</button>
+        <button class="btn" id="muteBtn" title="Mute your mic" disabled></button>
+        <button class="btn" id="pauseBtn" title="Pause (space)" disabled></button>
+        <button class="btn call" id="callBtn" title="Start the call"></button>
+        <button class="btn" id="statusBtn" data-icon="list" title="Roll call: where everyone is"></button>
+        <button class="btn" id="standupBtn" data-icon="users" title="Stand-up: each agent gives its latest, in its own voice" disabled></button>
       </div>
       <div class="pills">
-        <button id="standupBtn" title="Each agent gives its latest update, in its own voice" disabled>Stand-up</button>
-        <button id="holdBtn" title="Chime only: Ada will not tell you someone is waiting until you say “I'm free”" disabled>Hold calls</button>
+        <button class="chipbtn" id="holdBtn" title="Chime only: Ada will not tell you someone is waiting until you say “I'm free”" disabled>Hold calls</button>
       </div>
-      <form id="typeForm" autocomplete="off"><input id="typeBox" placeholder="…or type" disabled></form>
-      <div class="sub" style="font-size:12px;color:var(--muted)"><b style="color:var(--ink)">You</b> lead the call · <span id="timer">not connected</span></div>
+      <form id="typeForm" autocomplete="off"><span data-icon="keyboard"></span><input id="typeBox" placeholder="Type instead of speaking…" disabled><button class="iconbtn" type="submit" data-icon="send" title="Send"></button></form>
+      <div class="sub"><b style="color:var(--ink)">You</b> lead the call · <span id="timer">not connected</span></div>
     </div>
-    <div class="hint"><b>You lead; Ada assists.</b> Ask Ada to set things up: “start a project for a todo app”, “open my api folder”, “have Rex add tests”, or press <b>+</b>. Say a name to talk to that agent, <b>Ada</b> to come back. When someone needs you there's a chime, and in a quiet moment Ada says who is waiting. Say <b>yes</b> to hear it, then <b>yes</b> / <b>no</b> / <b>always</b> / <b>skip</b> / <b>later</b>, or just answer. <b>Next</b> goes to whoever has waited longest. <b>What's waiting?</b> · <b>hold my calls</b> / <b>I'm free</b> · <b>tell Rex …</b> · <b>stand-up</b> · status · pause · go on · stop · <b>bye</b> ends the call. Keys 0–9 switch.</div>
+    <details class="cmds">
+      <summary><span data-icon="keyboard"></span>Voice commands<span data-icon="chevron"></span></summary>
+      <dl class="cmdgrid">
+        <dt>A name</dt><dd>Talk to that agent. <b>Ada</b> brings you back to your assistant.</dd>
+        <dt>I'm done · back</dt><dd>Done with an agent goes to Ada; <b>back</b> returns to whoever you left.</dd>
+        <dt>Ask Ada</dt><dd>“Start a project for a todo app”, “open my api folder”, “have Rex add tests”.</dd>
+        <dt>Yes · no · always</dt><dd>Answer whoever is waiting. <b>Next</b> goes to whoever has waited longest.</dd>
+        <dt>What's waiting?</dt><dd>Hear the queue. <b>Hold my calls</b> / <b>I'm free</b> to mute or allow interruptions.</dd>
+        <dt>Tell Rex …</dt><dd>Pass a message without leaving whoever you're talking to.</dd>
+        <dt>Stand-up · status</dt><dd>Everyone's latest in their own voice, or a quick roll call.</dd>
+        <dt>Pause · go on · stop</dt><dd>Control speech. <b>Bye</b> ends the call.</dd>
+        <dt>Keys</dt><dd><kbd>0</kbd>–<kbd>9</kbd> switch agents · <kbd>space</kbd> pauses.</dd>
+      </dl>
+    </details>
   </section>
-  <section id="feedWrap">
-    <div id="waitWrap">
-      <h2 class="sec"><span>Waiting for you</span><span class="count" id="trayCount"></span></h2>
-      <div class="hands" id="tray"><div class="empty">Nobody yet. When someone on the team needs a yes, a no or an answer, it waits here. Ada tells you someone is waiting in a quiet moment, and reads it out only when you ask.</div></div>
+  <section id="canvasWrap" class="pane">
+    <div class="panehead">
+      <h2><span data-icon="canvas"></span>Canvas</h2>
+      <div class="tabs seg"><button class="on" data-pane="canvas">Canvas<span class="badge"></span></button><button data-pane="feed">Behind the scenes<span class="badge"></span></button></div>
+      <label class="follow" title="Show what the agent you are talking to has put up; turn off to choose."><span>Follow the floor</span><input type="checkbox" class="sw" id="followFloor" role="switch" checked></label>
+      <button class="iconbtn widebtn" id="wideBtn" title="Give the canvas most of the screen">⤢</button>
     </div>
-    <h2><span>Behind the scenes</span><span id="feedState"></span></h2>
+    <div id="canvasFilters"></div>
+    <div id="canvasScroll">
+      <div id="canvasPlan"></div>
+      <div id="canvas"></div>
+      <div id="canvasEmpty"><span data-icon="canvas" data-size="44"></span><b style="color:var(--muted)">Nothing on the canvas yet</b>Plans, pictures, charts and explanations from your agents appear here as they work.</div>
+    </div>
+  </section>
+  <section id="feedWrap" class="pane">
+    <div class="panehead">
+      <h2><span data-icon="terminal"></span>Behind the scenes</h2>
+      <div class="tabs seg"><button data-pane="canvas">Canvas<span class="badge"></span></button><button class="on" data-pane="feed">Behind the scenes<span class="badge"></span></button></div>
+      <span class="spacer"></span><span id="feedState" style="font-size:12px;color:var(--muted)"></span>
+      <button class="iconbtn foldbtn" id="foldBtn" title="Fold this panel to the side">⟩</button>
+    </div>
+    <button class="feedrail" id="feedRail" title="Open behind the scenes"><span class="dot"></span><span class="lbl">Behind the scenes</span></button>
     <div id="filters"></div>
     <div id="feed"></div>
   </section>
 </main>
+<nav id="phoneNav" aria-label="Sections">
+  <button data-tab="call" class="on"><span data-icon="phone" data-size="20"></span><span>Call</span></button>
+  <button data-tab="team"><span data-icon="users" data-size="20"></span><span>Team</span><b class="nbadge2" id="teamBadge"></b></button>
+  <button data-tab="canvas"><span data-icon="canvas" data-size="20"></span><span>Canvas</span><i class="dot"></i></button>
+  <button data-tab="feed"><span data-icon="terminal" data-size="20"></span><span>Activity</span><i class="dot"></i></button>
+</nav>
 <dialog id="newDlg">
   <form method="dialog" id="newForm">
     <h3>Seat a new agent</h3>
-    <label>Name <input name="name" placeholder="Juno — one word, easy to say" autocomplete="off" required></label>
-    <label>Folder it works in
-      <span class="pathrow"><input name="path" placeholder="leave empty for a new folder in Ada's home" autocomplete="off"><button type="button" id="browseBtn">Browse…</button></span>
+    <div class="two">
+      <label class="f">Name <input name="name" placeholder="Juno — one word, easy to say" autocomplete="off" required><small id="nameNote" style="color:var(--danger)"></small><span class="advice" id="nameAdvice"></span></label>
+      <label class="f">Model <select name="model" class="pick-model"></select></label>
+    </div>
+    <label class="f">Folder it works in
+      <span class="pathrow"><input name="path" placeholder="empty for a new folder in Ada's home" autocomplete="off"><button type="button" id="browseBtn"><span data-icon="folder" data-size="15"></span>Browse</button></span>
       <small id="pickNote"></small>
     </label>
-    <label>System prompt <span class="opt">optional</span><textarea name="prompt" placeholder="How this agent should work: its role, conventions, things to avoid. Added to its own instructions."></textarea></label>
-    <label>First task <span class="opt">optional</span><textarea name="brief" placeholder="What it should start on now, and what done looks like. Leave empty to just talk to it." style="min-height:60px"></textarea></label>
-    <label class="check"><input type="checkbox" name="focus"> talk to it now, instead of letting it work in the background</label>
-    <div class="row"><button value="cancel" formnovalidate>Cancel</button><button class="go" value="ok">Seat it</button></div>
+    <label class="f">System prompt <span class="opt">optional</span><textarea name="prompt" placeholder="How this agent should work: its role, conventions, things to avoid. Added to its own instructions."></textarea></label>
+    <label class="f">First task <span class="opt">optional</span><textarea name="brief" placeholder="What it should start on now, and what done looks like. Leave empty to just talk to it." style="min-height:60px"></textarea></label>
+    <label class="setting"><span class="st2"><b>Talk to it now</b><small>Instead of letting it work in the background</small></span><input type="checkbox" class="sw" name="focus" role="switch"></label>
+    <div class="row"><button type="button" id="newCancel">Cancel</button><button class="go" value="ok">Seat it</button></div>
   </form>
+</dialog>
+<dialog id="teachDlg" class="teach">
+  <div class="tface av big" id="teachFace"></div>
+  <small id="teachStep" style="color:var(--muted)"></small>
+  <h3 id="teachTitle"></h3>
+  <p id="teachHint"></p>
+  <div class="dots" id="teachDots"></div>
+  <ul id="teachHeard"></ul>
+  <p class="teachtip">Hands-free: a soft blip means a try was kept, a low tone means say it again. Say <b>skip</b>, <b>done</b> or <b>stop</b> any time.</p>
+  <div class="row"><button id="teachStop" type="button" hidden>Stop</button><button id="teachSkip" type="button">Skip</button><button id="teachAgain" type="button" hidden>Start over</button><button id="teachStart" type="button" class="go">Start the call</button><button id="teachDone" type="button" class="go">Done</button></div>
+</dialog>
+<dialog id="renameDlg" class="teach">
+  <form id="renameForm" autocomplete="off">
+    <div class="tface av big" id="renameFace"></div>
+    <h3>Rename <span id="renameWho"></span></h3>
+    <p>One word, easy to say, and not like anyone else's name. Next you will say it a few times so ClaudeCall learns your voice.</p>
+    <input id="renameBox" maxlength="20" spellcheck="false" autocapitalize="words" aria-label="New name">
+    <small id="renameNote" style="display:block;min-height:1.3em;margin-top:6px;color:var(--danger)"></small>
+    <span class="advice" id="renameAdvice"></span>
+    <div class="row"><button id="renameCancel" type="button">Cancel</button><button id="renameGo" class="go">Rename</button></div>
+  </form>
+</dialog>
+<dialog id="settingsDlg" class="drawer">
+  <div class="dh"><h3>Settings</h3><span class="spacer"></span><button class="iconbtn" id="settingsClose" data-icon="x" title="Close"></button></div>
+  <div class="group">
+    <h4>Sound</h4>
+    <label class="setting"><span class="si" data-icon="note"></span><span class="st2"><b>Agent chimes</b><small>A short tone from each agent's side before it speaks, so you know who it is.</small></span><input type="checkbox" class="sw" id="earcons" role="switch" checked></label>
+    <label class="setting" id="stereoRow" hidden><span class="si" data-icon="waves"></span><span class="st2"><b>Voices placed left and right</b><small>Each agent speaks from its own side, in its own voice, so on headphones you know who is talking straight away.</small></span><input type="checkbox" class="sw" id="stereoToggle" role="switch" checked></label>
+    <label class="setting"><span class="si" data-icon="bell"></span><span class="st2"><b>Ring when someone needs you</b><small>A soft chime the moment a request lands in Waiting.</small></span><input type="checkbox" class="sw" id="ringToggle" role="switch" checked></label>
+  </div>
+  <div class="group">
+    <h4>Microphone</h4>
+    <div class="setting" style="cursor:default"><span class="si" data-icon="mic"></span><span class="st2"><b>Sensitivity</b><small>Noisy room ignores more coughs and chatter; you may need to speak up.</small></span></div>
+    <div class="seg" id="sensSeg"><button data-v="low">Noisy room</button><button data-v="normal">Normal</button><button data-v="high">Quiet room</button></div>
+    <div class="setting" style="cursor:default;margin-top:8px"><span class="si" data-icon="users"></span><span class="st2"><b>How you speak</b><small>Your accent. Names and words are then heard the way you say them, not the way a recognizer expects.</small></span>
+      <select id="accentSel" class="pick"><option value="">Not set</option><option>Indian English</option><option>American English</option><option>British English</option><option>Australian English</option><option>Other English</option></select></div>
+    <div class="setting" style="cursor:default"><span class="si" data-icon="waves"></span><span class="st2"><b>Speech recognition</b><small id="recNote">Accurate hears accents and names better; Fast answers about half a second sooner.</small></span></div>
+    <div class="seg" id="recSeg"><button data-v="fast">Fast</button><button data-v="accurate">Accurate</button></div>
+    <label class="setting" style="margin-top:8px"><span class="si" data-icon="sparkle"></span><span class="st2"><b>Clean up what I say</b><small>Claude Haiku fixes misheard names and technical words before an agent gets them. Adds about a second.</small></span><input type="checkbox" class="sw" id="refineToggle" role="switch" checked></label>
+    <select id="sensitivity" hidden><option value="low">low</option><option value="normal" selected>normal</option><option value="high">high</option></select>
+  </div>
+  <div class="group">
+    <h4>Call</h4>
+    <label class="setting"><span class="si" data-icon="moon"></span><span class="st2"><b>Go to sleep when idle</b><small>Minutes of quiet before the call hangs up by itself.</small></span><input id="sleep" type="number" min="2" max="60"></label>
+    <div class="setting" style="cursor:default"><span class="si" data-icon="sun"></span><span class="st2"><b>Theme</b></span><div class="seg" id="themeSeg"><button data-v="">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div></div>
+  </div>
+  <div class="group">
+    <h4>Voices</h4>
+    <div class="empty" style="padding:0 0 6px">How each agent sounds. You can also just ask: “Ada, make Juno speak slower”, or tell an agent “speak a bit louder”.</div>
+    <div id="voiceList"><div class="empty">Start the call to see the team.</div></div>
+  </div>
+  <div class="group">
+    <h4>Models</h4>
+    <div class="empty" style="padding:0 0 6px">Each agent runs on its own model. A change applies from its next turn and keeps the conversation.</div>
+    <div id="modelList"><div class="empty">Start the call to see the team.</div></div>
+  </div>
 </dialog>
 <script src="/vendor/ort/ort.wasm.min.js"></script>
 <script src="/vendor/vad/bundle.min.js"></script>

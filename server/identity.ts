@@ -18,11 +18,31 @@ export interface Identity {
   earcon: [number, number];
   /** Hue for the orb and the panel, 0-360. */
   hue: number;
+  /** How loud this agent speaks, 0–1. */
+  volume?: number;
 }
 
-/** Ada, the central voice: always present, never one of the projects. */
+/** The central voice's name when nothing else is set: always present, never one of the projects. */
 export const CENTRAL_NAME = process.env.BUDDY_CENTRAL_NAME ?? "Ada";
-/** Her id on the wire. Reserved: no project can take it. */
+let currentName = CENTRAL_NAME;
+
+/** Her name now. The lead can change it; it is kept with the roster. */
+export const centralName = (): string => currentName;
+export function setCentralName(name: string): void {
+  currentName = name;
+}
+
+/**
+ * How speech recognizers commonly write "Ada" when it is said on its own. Matched exactly, like
+ * her name, so "Aida, what is Milo doing?" reaches her too, not only a bare "Aida". Any other
+ * name starts with none; the lead teaches the app how they say it instead.
+ */
+export const builtinAliases = (name: string): string[] => name.toLowerCase() === "ada"
+  ? ["aida", "ayda", "aider", "adah", "adda", "ader", "eda", "edda", "etta", "ida", "aada", "ata"]
+  : [];
+export const CENTRAL_ALIASES = builtinAliases(CENTRAL_NAME);
+
+/** Her id on the wire. Fixed for the life of the install, whatever she is called; no project can take it. */
 export const CENTRAL_ID = CENTRAL_NAME.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "central";
 
 export const CENTRAL: Identity = {

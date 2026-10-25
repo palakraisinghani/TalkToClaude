@@ -3,6 +3,8 @@ import { createInterface } from "node:readline";
 import type { Agent, AgentEvent } from "./types.ts";
 
 type Listener = (turn: number, event: AgentEvent) => void;
+/** Largest base64 image passed on to the page; anything bigger stays a text summary. */
+const IMAGE_MAX = 8_000_000;
 
 /**
  * One warm `claude -p` process per call, fed user messages as stream-json on stdin.
@@ -21,7 +23,10 @@ export class ClaudeSession implements Agent {
   private cwd: string;
   private systemPrompt: string;
   private permissionMode: string;
-  private pendingMode: string | null = null;
+  private model: string;
+  /** What the mode and model were before a change the CLI has not yet confirmed, to roll back to. */
+  private modeBefore: string | null = null;
+  private modelBefore: string | null = null;
   /** Set while a --resume has not yet been shown to work, so a dead session can fall back to a new one. */
   private resuming = false;
   private heard = false;
@@ -34,8 +39,17 @@ export class ClaudeSession implements Agent {
   /** Control requests we sent and are waiting on an answer for. */
   private waiting = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
-  constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string }) {
+  /** Extra command-line flags, and environment, for a session that is not a full agent (the Refiner). */
+  private extraArgs: string[];
+  private env: Record<string, string>;
+  private replacePrompt: boolean;
+
+  constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string; model?: string; extraArgs?: string[]; env?: Record<string, string>; replaceSystemPrompt?: boolean }) {
     this.cwd = opts.cwd;
+    this.extraArgs = opts.extraArgs ?? [];
+    this.env = opts.env ?? {};
+    this.replacePrompt = !!opts.replaceSystemPrompt;
+    this.model = opts.model ?? "";
     this.systemPrompt = opts.systemPrompt;
     this.permissionMode = opts.permissionMode ?? "auto";
     // picking up an earlier conversation in this directory: start() passes it to --resume
@@ -56,10 +70,12 @@ export class ClaudeSession implements Agent {
       "-p", "--input-format", "stream-json", "--output-format", "stream-json",
       "--verbose", "--include-partial-messages",
       "--permission-mode", this.permissionMode,
-      "--append-system-prompt", this.systemPrompt,
+      ...(this.model ? ["--model", this.model] : []),
+      this.replacePrompt ? "--system-prompt" : "--append-system-prompt", this.systemPrompt,
+      ...this.extraArgs,
       ...(this.sessionId ? ["--resume", this.sessionId] : []),
     ];
-    const child = spawn("claude", args, { cwd: this.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("claude", args, { cwd: this.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...this.env } });
     this.child = child;
     let stderr = "";
     child.stderr!.on("data", (d) => (stderr = (stderr + d).slice(-2000)));
@@ -72,10 +88,14 @@ export class ClaudeSession implements Agent {
         ? "Cannot find the claude command. Install Claude Code and make sure `claude` is on your PATH."
         : err.message;
     });
-    createInterface({ input: child.stdout! }).on("line", (line) => this.onLine(line));
+    // once closed (or replaced), anything this process still writes is ignored: a parked agent
+    // must not report a finished turn, and an ended call must not log past its end
+    createInterface({ input: child.stdout! }).on("line", (line) => { if (this.child === child) this.onLine(line); });
     child.on("close", (code) => {
       if (this.child !== child) return;
       this.child = null;
+      // a side question can never be answered by a process that has gone
+      this.rejectWaiting("the agent stopped");
       // the session to resume is gone (deleted, or from another machine): start a fresh one and
       // replay what was asked, rather than leaving the project dead on arrival
       if (this.resuming && !this.heard) {
@@ -106,11 +126,10 @@ export class ClaudeSession implements Agent {
     const turn = ++this.turns;
     if (!interrupt && replaceQueued) {
       // the rest of a sentence whose first half was queued: it replaces that half, still waiting
-      for (const q of this.queue) this.interrupted.add(q.turn);
-      this.queue = [];
+      this.drop();
     }
     if (interrupt) {
-      for (const q of this.queue) this.interrupted.add(q.turn);
+      this.drop();
       this.queue = [{ turn, text }];
       if (this.active) this.interrupt();
     } else this.queue.push({ turn, text });
@@ -125,17 +144,43 @@ export class ClaudeSession implements Agent {
    */
   setPermissionMode(mode: string): void {
     if (mode === this.permissionMode) return;
+    this.modeBefore = this.permissionMode;
     this.permissionMode = mode;
     if (!this.child) return; // start() will spawn with the new mode
-    this.pendingMode = mode;
     this.write({ type: "control_request", request_id: `mode-${++this.controls}`, request: { subtype: "set_permission_mode", mode } });
+  }
+
+  /**
+   * Run on a different model from the next turn on, keeping the conversation. Empty means Claude
+   * Code's default. Like the permission mode, it is changed in place over the control channel.
+   */
+  setModel(model: string): void {
+    if (model === this.model) return;
+    this.modelBefore = this.model;
+    this.model = model;
+    if (!this.child) return; // start() will spawn with it
+    this.write({ type: "control_request", request_id: `model-${++this.controls}`, request: { subtype: "set_model", ...(model ? { model } : {}) } });
   }
 
   /** Stop everything: the running turn and anything queued behind it. This is what "stop" means. */
   stop(): void {
-    for (const q of this.queue) this.interrupted.add(q.turn);
-    this.queue = [];
+    this.drop();
     this.interrupt();
+  }
+
+  /**
+   * Let go of everything still queued. Each dropped turn is reported, so the page can close its
+   * card instead of leaving it "queued" for ever; it never ran, so there is nothing else to tell.
+   */
+  private drop(): void {
+    const gone = this.queue;
+    this.queue = [];
+    for (const q of gone) this.emit(q.turn, { kind: "dropped" });
+  }
+
+  private rejectWaiting(why: string): void {
+    for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(new Error(why)); }
+    this.waiting.clear();
   }
 
   interrupt(): void {
@@ -183,8 +228,7 @@ export class ClaudeSession implements Agent {
   }
 
   close(): void {
-    for (const w of this.waiting.values()) { clearTimeout(w.timer); w.reject(new Error("the agent was closed")); }
-    this.waiting.clear();
+    this.rejectWaiting("the agent was closed");
     this.queue = [];
     const c = this.child;
     this.child = null;
@@ -217,8 +261,13 @@ export class ClaudeSession implements Agent {
   private onLine(line: string) {
     let ev: any;
     try { ev = JSON.parse(line); } catch { return; }
-    if (ev.type === "system" || ev.type === "stream_event" || ev.type === "assistant") this.heard = true;
-    if (ev.session_id) this.sessionId = ev.session_id;
+    // Only real conversation counts as the session working. Hook notices ("SessionStart") arrive
+    // even when the session to resume no longer exists, so they prove nothing.
+    if ((ev.type === "system" && ev.subtype === "init") || ev.type === "stream_event" || ev.type === "assistant") this.heard = true;
+    const failedResume = this.resuming && !this.heard;
+    if (ev.session_id && !failedResume) this.sessionId = ev.session_id;
+    // Claude Code summarised the conversation to make room: what it was told before may be gone
+    if (ev.type === "system" && ev.subtype === "compact_boundary") this.emit(this.active, { kind: "compacted" });
     if (ev.type === "control_request") {
       const r = ev.request ?? {};
       if (r.subtype === "can_use_tool") {
@@ -253,10 +302,15 @@ export class ClaudeSession implements Agent {
       if (r.subtype === "error" && String(r.request_id ?? "").startsWith("allow-")) {
         this.emit(this.active, { kind: "error", message: `Could not allow that: ${r.error}` });
       }
+      // a refused change is rolled back, so what this session says it is matches what it is
+      if (r.subtype === "error" && String(r.request_id ?? "").startsWith("model-")) {
+        if (this.modelBefore !== null) this.model = this.modelBefore;
+        this.emit(this.active, { kind: "error", message: `Could not change the model: ${r.error}` });
+      }
       if (r.subtype === "error" && String(r.request_id ?? "").startsWith("mode-")) {
+        if (this.modeBefore !== null) this.permissionMode = this.modeBefore;
         this.emit(this.active, { kind: "error", message: `Could not change what this project may do: ${r.error}` });
       }
-      this.pendingMode = null;
       return;
     }
     const turn = this.active;
@@ -287,7 +341,11 @@ export class ClaudeSession implements Agent {
         // summary is one line for the card; detail keeps the original newlines and indentation
         const detail = raw.replace(/\x1b\[[0-9;]*m/g, "").replace(/\r\n?/g, "\n");
         const summary = detail.split("\n").find((l) => l.trim())?.trim().slice(0, 160) ?? "";
-        this.emit(turn, { kind: "tool_result", id: b.tool_use_id, ok: !b.is_error, summary, detail: detail.length > 6000 ? detail.slice(0, 6000) + "\n…" : detail });
+        // a Read of a picture comes back as an image block: keep it, so the panel can show it
+        const images = (Array.isArray(b.content) ? b.content : [])
+          .filter((c: any) => c.type === "image" && c.source?.type === "base64" && c.source.data?.length < IMAGE_MAX)
+          .map((c: any) => `data:${c.source.media_type};base64,${c.source.data}`);
+        this.emit(turn, { kind: "tool_result", id: b.tool_use_id, ok: !b.is_error, summary, detail: detail.length > 6000 ? detail.slice(0, 6000) + "\n…" : detail, ...(images.length ? { images } : {}) });
       }
     } else if (ev.type === "system" && ev.subtype === "permission_denied" && live) {
       // `manual` mode denies anything that would prompt and reports it here. This is how a
@@ -295,11 +353,19 @@ export class ClaudeSession implements Agent {
       const toolUseId = String(ev.tool_use_id ?? "");
       this.emit(turn, { kind: "permission", tool: String(ev.tool_name ?? "a tool"), toolUseId, input: this.toolInputs.get(toolUseId) ?? {}, message: String(ev.message ?? "") });
     } else if (ev.type === "result") {
+      // the session it tried to resume is gone: the process is about to exit, and the close
+      // handler starts a fresh one. Put the message back so it is sent there, not lost.
+      if (failedResume) {
+        if (this.sent?.turn === turn) this.queue.unshift(this.sent);
+        this.active = 0;
+        return;
+      }
       this.asks.clear();
       const interrupted = this.interrupted.delete(turn) || ev.subtype === "error_during_execution";
       if (ev.is_error && !interrupted) this.emit(turn, { kind: "error", message: String(ev.result || ev.subtype || "Claude reported an error") });
       this.active = 0;
-      this.emit(turn, { kind: "done", sessionId: this.sessionId, interrupted });
+      // what the turn cost and how long it took, as the CLI reports them, for the meter on the page
+      this.emit(turn, { kind: "done", sessionId: this.sessionId, interrupted, costUsd: Number(ev.total_cost_usd) || 0, ms: Number(ev.duration_ms) || 0 });
       this.pump();
     }
   }

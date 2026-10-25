@@ -72,16 +72,23 @@ async function sessionsIn(folder: string, dir: string, out: Map<string, PastSess
   } catch {
     return;
   }
-  for (const name of names) {
-    if (!name.endsWith(".jsonl")) continue;
+  await pool(names.filter((n) => n.endsWith(".jsonl")), 8, async (name) => {
     const file = join(folder, name);
-    if ((await cwdOf(file)) !== dir) continue;
+    if ((await cwdOf(file).catch(() => "")) !== dir) return;
     const id = name.slice(0, -".jsonl".length);
-    if (out.has(id)) continue;
+    if (out.has(id)) return;
     const st = await stat(file).catch(() => null);
-    if (!st || st.size === 0) continue;
-    out.set(id, { id, at: st.mtimeMs, label: await labelOf(file), file });
-  }
+    if (!st || st.size === 0) return;
+    out.set(id, { id, at: st.mtimeMs, label: await labelOf(file).catch(() => ""), file });
+  });
+}
+
+/** Run `fn` over `items`, at most `n` at a time: hundreds of session files read without a queue of hundreds. */
+async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  }));
 }
 
 /**
@@ -92,19 +99,17 @@ async function sessionsIn(folder: string, dir: string, out: Map<string, PastSess
 export async function findSessions(dir: string): Promise<PastSession[]> {
   const root = projectsRoot();
   const found = new Map<string, PastSession>();
-  // the folder the CLI most likely used
+  // the folder the CLI most likely used: if it has them, that is the answer, and quick
   await sessionsIn(join(root, encode(dir)), dir, found);
-  // then everything else, because the naming scheme is not ours to rely on
+  if (found.size) return [...found.values()].sort((a, b) => b.at - a.at);
+  // otherwise everything else, because the naming scheme is not ours to rely on
   let folders: string[] = [];
   try {
     folders = await readdir(root);
   } catch {
     return [...found.values()];
   }
-  for (const f of folders) {
-    if (f === encode(dir)) continue;
-    await sessionsIn(join(root, f), dir, found);
-  }
+  await pool(folders.filter((f) => f !== encode(dir)), 4, (f) => sessionsIn(join(root, f), dir, found));
   return [...found.values()].sort((a, b) => b.at - a.at);
 }
 

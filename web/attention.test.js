@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classify, createAttention, headsUp, headsUpLine, heard, next, order, review, tick, urgent, wantsHeadsUp, WINDOW_MS, QUIET_MS } from "./attention.js";
+import { classify, confirmFirst, createAttention, headsUp, headsUpLine, heard, next, order, review, tick, urgent, wantsHeadsUp, WINDOW_MS, QUIET_MS } from "./attention.js";
 
 const perm = { uid: 1, project: "juno", name: "Juno", kind: "permission", text: "Juno wants to install dependencies.", at: 10 };
 const q = { uid: 2, project: "rex", name: "Rex", kind: "question", text: "Rex asks: Postgres or SQLite?", at: 20 };
@@ -156,4 +156,32 @@ test("a late yes still answers the heads-up, unless the agent on the floor has s
   const spoke = { ...over.state, floorSpoke: true };
   assert.deepEqual(types(heard(spoke, "Yeah, sure.", [q], T + 2000)), ["passthrough"], "a yes after Milo spoke is Milo's");
   assert.deepEqual(types(heard(over.state, "Yeah, sure.", [q], T + 25_000)), ["passthrough"], "too late");
+});
+
+test("'next' on a piece of news reads it and goes back to normal, not stuck mid-review", () => {
+  const r = next(createAttention(), [done], T);
+  assert.equal(r.state.mode, "normal");
+  assert.deepEqual(r.say, [done.text]);
+});
+
+test("once the agent on the floor has spoken, a yes is theirs, even inside a heads-up window", () => {
+  const h = headsUp(createAttention(), [q], T);
+  const r = heard({ ...h.state, floorSpoke: true }, "yes", [q], T + 1000);
+  assert.deepEqual(types(r), ["passthrough"]);
+});
+
+test("a risky request needs 'confirm': a yes, or a cough heard as one, is asked again", () => {
+  const risky = { ...perm, uid: 9, risk: "it deletes files for good", text: "Juno wants to delete the build folder. Careful: it deletes files for good." };
+  const r1 = review(createAttention(), [risky], T);
+  assert.match(r1.say[0], /Say confirm to allow it/);
+  const r2 = heard(r1.state, "yes", [risky], T + 1000);
+  assert.equal(r2.actions.length, 0, "not granted on a yes");
+  assert.match(r2.say[0], /can't be undone/);
+  assert.equal(heard(r1.state, "always", [risky], T + 1000).actions.length, 0, "never 'always' for this");
+  const r3 = heard(r2.state, "confirm", [risky], T + 2000);
+  assert.deepEqual(r3.actions.map((a) => [a.type, a.scope]), [["grant", "once"]]);
+  assert.equal(heard(r1.state, "no", [risky], T + 1000).actions[0].type, "deny");
+  const c = confirmFirst(createAttention(), risky, T);
+  assert.equal(c.state.mode, "awaiting");
+  assert.equal(classify("Confirm."), "confirm");
 });

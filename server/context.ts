@@ -25,7 +25,17 @@ const quote = (s: string, max = 160) => {
 
 /** Short bracketed note prepended to the user's words so Claude knows where the call stands. */
 export function formatContext(mode: Mode, ctx?: CallContext | null, onTheLine = true): string {
-  const parts = [`[call · ${mode === "audio" ? "audio-only" : "visual+audio"} · ${onTheLine ? "you are on the line" : "you are in the background, your words are not spoken"}]`];
+  return [callHeader(mode, onTheLine), cutIn(ctx)].filter(Boolean).join(" ");
+}
+
+/** Where the agent is on the call. The same turn after turn, so it is only sent when it changes. */
+export function callHeader(mode: Mode, onTheLine = true): string {
+  return `[call · ${mode === "audio" ? "audio-only" : "visual+audio"} · ${onTheLine ? "you are on the line" : "you are in the background, your words are not spoken"}]`;
+}
+
+/** What the listener had heard when they cut in: about this message alone, so always sent. */
+export function cutIn(ctx?: CallContext | null): string {
+  const parts: string[] = [];
   if (ctx) {
     const bits: string[] = [];
     if (ctx.kind === "paused") {

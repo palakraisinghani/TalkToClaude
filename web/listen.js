@@ -6,11 +6,15 @@
 // less likely to count, at the cost of needing to speak up a little.
 export const SENSITIVITY = {
   low: { positiveSpeechThreshold: 0.7, negativeSpeechThreshold: 0.5, minSpeechMs: 400 },
-  normal: { positiveSpeechThreshold: 0.55, negativeSpeechThreshold: 0.38, minSpeechMs: 300 },
+  // a name said on its own ("Ada") is about a quarter of a second; the minimum must let it through
+  normal: { positiveSpeechThreshold: 0.55, negativeSpeechThreshold: 0.38, minSpeechMs: 250 },
   high: { positiveSpeechThreshold: 0.42, negativeSpeechThreshold: 0.28, minSpeechMs: 220 },
 };
 // Silero v5 judges 512-sample frames at 16 kHz.
 const FRAME_MS = 32;
+// While a voice plays out of speakers, the mic hears it as speech without a pause, so a segment
+// would not end until the voice did. Cut it this often instead, so an interruption is heard now.
+const FLUSH_MS = 2500;
 
 export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire, onLevel, processorType = "auto", audioContext, sensitivity = "normal" }) {
   if (!window.vad) throw new Error("VAD library did not load");
@@ -19,10 +23,12 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
   // how much of the current segment the detector was confident was a voice: a cough is loud but
   // brief, a word is sustained, and this is what tells them apart once the transcript is back
   let voicedFrames = 0;
+  let segmentAt = 0;
+  let vad = null;
   const options = () => strict
-    ? { ...level, positiveSpeechThreshold: Math.min(0.9, level.positiveSpeechThreshold + 0.2), minSpeechMs: level.minSpeechMs + 150 }
+    ? { ...level, positiveSpeechThreshold: Math.min(0.9, level.positiveSpeechThreshold + 0.1), minSpeechMs: level.minSpeechMs + 50 }
     : level;
-  const vad = await window.vad.MicVAD.new({
+  vad = await window.vad.MicVAD.new({
     model: "v5",
     baseAssetPath: "/vendor/vad/",
     onnxWASMBasePath: "/vendor/ort/",
@@ -35,12 +41,17 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
     ...level,
     redemptionMs: 900, // this much silence ends your turn; short pauses mid-sentence do not
     preSpeechPadMs: 400,
-    onSpeechStart: () => { voicedFrames = 0; onSpeechStart(); },
-    onSpeechEnd: (audio) => onSpeechEnd(toInt16(audio), voicedFrames * FRAME_MS),
-    onVADMisfire: onMisfire,
+    onSpeechStart: () => { voicedFrames = 0; segmentAt = Date.now(); onSpeechStart(); },
+    onSpeechEnd: (audio) => { segmentAt = 0; onSpeechEnd(toInt16(audio), voicedFrames * FRAME_MS); },
+    onVADMisfire: () => { segmentAt = 0; onMisfire(); },
     onFrameProcessed: (p) => {
       if (p.isSpeech >= options().positiveSpeechThreshold) voicedFrames++;
       onLevel?.(p.isSpeech);
+      // frameProcessor is the library's own; if a version drops it, segments just run long again
+      if (strict && segmentAt && Date.now() - segmentAt > FLUSH_MS && vad?.frameProcessor?.endSegment) {
+        segmentAt = 0;
+        vad.frameProcessor.endSegment(vad.handleFrameProcessorEvent);
+      }
     },
   });
   return {

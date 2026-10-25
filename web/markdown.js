@@ -2,13 +2,31 @@
 // document: an unclosed ``` fence renders as code so far, and whitespace inside code is kept
 // exactly (indentation, blank lines, long lines scroll instead of wrapping).
 
+import { renderChart } from "./chart.js";
+
+const MEDIA_URL = String.raw`https?:\/\/[^\s)<]*?(?:\.(?:gif|png|jpe?g|webp|svg|avif|mp4|m4v|webm|mov)(?:\?[^\s)<]*)?|youtube\.com\/(?:watch\?[^\s)<]*v=|shorts\/)[\w-]{11}[^\s)<]*|youtu\.be\/[\w-]{11}[^\s)<]*)`;
+const MEDIA_LINK = new RegExp(String.raw`(?<!!)\[([^\]\n]+)\]\((${MEDIA_URL})\)`, "g");
+const BARE_MEDIA = new RegExp(String.raw`(^|\s)(${MEDIA_URL})(?=\s|$)`, "g");
+
 export const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+// a line that is only a path to a picture or video ("output/plot.png", in backticks or not) shows it
+const LONE_PATH = /^\s*`?((?:~|\.{1,2})?\/?[\w.\-~/]+\.(?:png|jpe?g|gif|webp|svg|avif|mp4|m4v|webm|mov))`?\s*$/i;
+
 function inline(s) {
+  const lone = LONE_PATH.exec(s);
+  if (lone) return `<span class="media" data-alt="" data-src="${esc(lone[1])}"></span>`;
   // protect code spans first so their contents are not formatted
   const spans = [];
   let t = esc(s).replace(/`([^`\n]+)`/g, (_, c) => `\u0000${spans.push(c) - 1}\u0000`);
   t = t
+    // pictures, GIFs and videos are filled in by the page, which fetches them over the socket:
+    // ![alt](src), a link straight to a media file or a YouTube video, or such a link on its own
+    .replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, '<span class="media" data-alt="$1" data-src="$2"></span>')
+    .replace(MEDIA_LINK, '<span class="media" data-alt="$1" data-src="$2"></span>')
+    .replace(BARE_MEDIA, '$1<span class="media" data-alt="" data-src="$2"></span>')
+    // a picture pasted inline as data that never closed: it was cut off on the way
+    .replace(/!\[([^\]\n]*)\]\(data:[^)\s]*$/, '<span class="media" data-alt="$1" data-cut="1"></span>')
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<i>$2</i>")
     .replace(/\[([^\]\n]+)\]\((?:[^)\s]+)\)/g, "<u>$1</u>");
@@ -36,7 +54,16 @@ export function renderMarkdown(src) {
       const body = [];
       i++;
       while (i < lines.length && !new RegExp(`^\\s*${fence[1]}\\s*$`).test(lines[i])) body.push(lines[i++]);
+      const closed = i < lines.length;
       i++; // closing fence (or end of a still-streaming block)
+      // a diagram is drawn by the page once its block is complete (see diagram.js); half a diagram
+      // would only be a syntax error, so while it streams in it says so
+      if (/^(mermaid|diagram|flowchart)$/.test(fence[2])) {
+        out.push(`<div class="diagram${closed ? "" : " pending"}" data-src="${encodeURIComponent(body.join("\n"))}">${closed ? "" : "Drawing the diagram…"}</div>`);
+        continue;
+      }
+      // a chart block is drawn, not shown as code; while it streams in, it says so
+      if (fence[2] === "chart") { out.push(renderChart(body.join("\n"))); continue; }
       const lang = fence[2] ? ` data-lang="${esc(fence[2])}"` : "";
       out.push(`<pre${lang}><code>${esc(body.join("\n"))}</code></pre>`);
       continue;

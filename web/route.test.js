@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { route } from "./route.js";
+import { route, spokenName, soundsLike } from "./route.js";
 
 const P = [{ id: "ada", name: "Ada" }, { id: "rex", name: "Rex" }, { id: "juno", name: "Juno" }];
 
@@ -113,4 +113,107 @@ test("calling someone by name wins over whoever has the line", () => {
 
 test("asking for the full version is a page command", () => {
   for (const s of ["tell me more", "Give me the full summary.", "full report", "walk me through it"]) assert.deepEqual(route(s, P), { kind: "local", name: "more" }, s);
+});
+
+test("saying you are done hands the floor back to the assistant", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "milo", name: "Milo" }];
+  for (const t of ["I'm done", "I am done with Milo", "okay that's all thanks", "that is all", "that'll do"]) {
+    assert.deepEqual(route(t, Q), { kind: "local", name: "done" }, t);
+  }
+  // "done" alone may be an answer to the agent's own question, so it stays with the agent
+  assert.equal(route("done", Q).kind, "ask");
+});
+
+test("the assistant answers to a misheard name said on its own, and only then", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "milo", name: "Milo" }];
+  for (const t of ["Aida", "Ida?", "Etta", "Adah", "hey Ida", "Ada please", "Ada, are you there?", "switch to Aida"]) {
+    assert.deepEqual(route(t, Q), { kind: "focus", project: "ada" }, t);
+  }
+  // a sound-alike never redirects an instruction, and an exact project name still wins
+  assert.equal(route("Adder run the tests", Q).kind, "ask");
+  assert.equal(route("either way fix it", Q).kind, "ask");
+  const R = [...Q, { id: "ida", name: "Ida" }];
+  assert.deepEqual(route("Ida", R), { kind: "focus", project: "ida" });
+});
+
+test("every agent answers to near-sounding spellings of its name, and to its aliases", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "milo", name: "Milo" }, { id: "rex", name: "Rex" }, { id: "juno", name: "Juno" }];
+  for (const [t, id] of [["Mylo", "milo"], ["hey Myla", "milo"], ["switch to Mylo", "milo"], ["Wrecks", "rex"], ["Juneau", "juno"]]) {
+    assert.deepEqual(route(t, Q), { kind: "focus", project: id }, t);
+  }
+  // an alias is a chosen name, so it carries an instruction like the name does
+  const A = [{ id: "ada", name: "Ada", central: true, aliases: ["aida"] }, { id: "milo", name: "Milo", aliases: ["mylo"] }];
+  assert.deepEqual(route("Aida, what is Milo doing", A), { kind: "address", project: "ada", text: "what is Milo doing" });
+  assert.deepEqual(route("Mylo run the tests", A), { kind: "address", project: "milo", text: "run the tests" });
+  // a sound-alike does not: it falls through to whoever is on the line
+  assert.equal(route("Myla run the tests", A).kind, "ask");
+});
+
+test("going back after a detour to the assistant", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "otto", name: "Otto" }];
+  for (const t of ["back", "go back", "take me back", "okay go back", "back to him", "back to where I was", "return"]) {
+    assert.deepEqual(route(t, Q), { kind: "local", name: "back" }, t);
+  }
+  assert.deepEqual(route("switch back to Otto", Q), { kind: "focus", project: "otto" });
+  assert.deepEqual(route("back to Otto", Q), { kind: "focus", project: "otto" });
+});
+
+test("being put through with a note goes as a handoff, carrying the rest of the sentence", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "iris", name: "Iris" }, { id: "juno", name: "Juno" }];
+  assert.deepEqual(route("Iris can you connect me to Ada and ask her to switch me to Juno", Q), { kind: "handoff", project: "ada", text: "switch me to juno" });
+  assert.deepEqual(route("put me through to Ada and tell her I want everyone's status", Q), { kind: "handoff", project: "ada", text: "i want everyone's status" });
+  assert.deepEqual(route("connect me to Ada", Q), { kind: "focus", project: "ada" });
+});
+
+test("Ada is reached by the ways the recognizer actually mishears her, even beside a similar name", () => {
+  // Otto blurs into Ada; a tie goes to her unless the word plainly is the other name
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "otto", name: "Otto" }, { id: "iris", name: "Iris" }];
+  for (const t of ["Other", "Order", "Ada, Ada", "a to please", "add a", "Gator, gator", "switch to radar", "back to waiter", "Switched to Ada", "Okey-ada", "Anna"]) {
+    const r = route(t, Q);
+    assert.ok((r.kind === "focus" || r.kind === "address") && r.project === "ada", `${t} -> ${JSON.stringify(r)}`);
+  }
+  for (const t of ["Otto", "otter", "auto"]) assert.deepEqual(route(t, Q), { kind: "focus", project: "otto" }, t);
+  // fillers and a deferral are never taken for her name
+  for (const t of ["later", "ah", "and"]) assert.notEqual(route(t, Q).project, "ada", t);
+});
+
+test("a name said on its own is read back as one spelling, however the recognizer wrote it", () => {
+  assert.equal(spokenName("Felix."), "felix");
+  assert.equal(spokenName("Felix, Felix."), "felix");
+  assert.equal(spokenName("hey Feelix please"), "feelix");
+  assert.equal(spokenName("a to"), "ato");
+  assert.equal(spokenName("can you run the tests"), "");
+});
+
+test("teaching names can be started by voice", () => {
+  for (const s of ["learn my voice", "teach names", "let's learn the names", "learn how I say the names"]) assert.deepEqual(route(s, P), { kind: "local", name: "teach" }, s);
+});
+
+test("an Indian-English accent setting widens what counts as sounding like a name", () => {
+  const indian = { accent: "Indian English" };
+  assert.equal(soundsLike("Bada", "Ada"), false);
+  assert.equal(soundsLike("Bada", "Ada", indian), true);
+  assert.equal(soundsLike("hey Vren", "Wren", indian), true);
+  assert.equal(soundsLike("Aada", "Ada", indian), true);
+  // still not anything at all
+  assert.equal(soundsLike("hello", "Milo", indian), false);
+  assert.equal(soundsLike("okay", "Ada", indian), false);
+});
+
+test("undoing an agent's last turn, by name or for whoever has the line", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "juno", name: "Juno" }];
+  assert.deepEqual(route("undo what Juno just did", Q), { kind: "undo", project: "juno" });
+  assert.deepEqual(route("Ada, undo Juno's last change", Q), { kind: "undo", project: "juno" });
+  assert.deepEqual(route("undo that", Q), { kind: "undo", project: null });
+});
+
+test("stopping one agent by name", () => {
+  const Q = [{ id: "ada", name: "Ada", central: true }, { id: "juno", name: "Juno" }];
+  assert.deepEqual(route("stop Juno", Q), { kind: "stop-agent", project: "juno" });
+  assert.deepEqual(route("stop", Q), { kind: "local", name: "stop" });
+});
+
+test("teaching one name by voice", () => {
+  for (const s of ["learn how I say Juno", "teach Ada's name", "teach Ada again", "teach Ada"]) assert.deepEqual(route(s, P), { kind: "local", name: "teach" }, s);
+  assert.equal(route("learn python", P).kind, "ask");
 });

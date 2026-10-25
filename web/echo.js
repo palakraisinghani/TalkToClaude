@@ -33,3 +33,29 @@ export function echoScore(utterance, spokenText) {
 export const ECHO_THRESHOLD = 0.7;
 
 export const isEchoOf = (utterance, spokenText) => echoScore(utterance, spokenText) >= ECHO_THRESHOLD;
+
+/**
+ * What is left of an utterance once Buddy's own words are taken out of it. Talking over a voice
+ * on speakers puts both in one recording: "the build passed and wait stop that" is an echo with
+ * an interruption in it, and throwing the whole thing away loses the interruption. Only runs of
+ * at least `minRun` words that Buddy actually said in that order are removed, so a person who
+ * happens to repeat a short phrase of its, three words or fewer, keeps it.
+ */
+export function stripEcho(utterance, spokenText, minRun = 4) {
+  const raw = utterance.trim().split(/\s+/).filter(Boolean);
+  const u = raw.map((w) => w.toLowerCase().replace(/[^\w]/g, ""));
+  const said = pairs(words(spokenText));
+  if (u.length < 2 || !said.size) return utterance.trim();
+  const covered = new Array(u.length).fill(false);
+  for (let i = 1; i < u.length; i++) {
+    if (u[i - 1] && u[i] && said.has(u[i - 1] + " " + u[i])) covered[i - 1] = covered[i] = true;
+  }
+  const keep = [];
+  for (let i = 0; i < u.length; ) {
+    let j = i;
+    while (j < u.length && covered[j] === covered[i]) j++;
+    if (!covered[i] || j - i < minRun) keep.push(...raw.slice(i, j));
+    i = j;
+  }
+  return keep.join(" ");
+}

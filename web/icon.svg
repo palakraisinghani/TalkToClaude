@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ClaudeCall">
+  <!-- ClaudeCall: a speech bubble holding a small team — one lead, linked to the agents — and a voice -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f2a383"/>
+      <stop offset=".55" stop-color="#d97757"/>
+      <stop offset="1" stop-color="#b2543a"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>
+  <!-- the bubble -->
+  <path d="M14 15h31a7 7 0 0 1 7 7v15a7 7 0 0 1-7 7H28l-8.5 7.5c-.9.8-2.3.2-2.3-1V44H14a7 7 0 0 1-7-7V22a7 7 0 0 1 7-7z" fill="#fff"/>
+  <!-- the team: the lead in the middle, three agents linked to them -->
+  <g stroke="#d97757" stroke-width="2.4" stroke-linecap="round">
+    <line x1="25" y1="29.5" x2="16.5" y2="24"/>
+    <line x1="25" y1="29.5" x2="16.5" y2="35"/>
+    <line x1="25" y1="29.5" x2="34" y2="29.5"/>
+  </g>
+  <circle cx="25" cy="29.5" r="5.2" fill="#d97757"/>
+  <circle cx="16" cy="23.5" r="3" fill="#e8956f"/>
+  <circle cx="16" cy="35.5" r="3" fill="#e8956f"/>
+  <circle cx="35" cy="29.5" r="3" fill="#e8956f"/>
+  <!-- the voice -->
+  <g fill="none" stroke="#d97757" stroke-width="2.6" stroke-linecap="round">
+    <path d="M41 25.5a6 6 0 0 1 0 8"/>
+    <path d="M45.5 22a11 11 0 0 1 0 15"/>
+  </g>
+</svg>

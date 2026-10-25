@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { echoScore, isEchoOf } from "./echo.js";
+import { echoScore, isEchoOf, stripEcho } from "./echo.js";
 
 const SPOKEN = "Found it. The token check never waits for verification. Want me to go on?";
 
@@ -36,4 +36,13 @@ test("a command Buddy just offered does score as an echo, so commands must be ma
   // "want me to go on?" makes "go on" a pair Buddy said; app.js dispatches local commands
   // before consulting the guard for exactly this reason.
   assert.ok(isEchoOf("go on", SPOKEN));
+});
+
+test("talking over the voice keeps your words and drops its own", () => {
+  const said = "The build passed and all thirty tests are green. I also cleaned up the old config file.";
+  assert.equal(stripEcho("The build passed and all thirty tests wait stop that", said), "wait stop that");
+  assert.equal(stripEcho("the build passed and all thirty tests are green", said), "");
+  // a few of its words in a row are not an echo: only longer runs it really said are taken out
+  assert.equal(stripEcho("run the old config again", said), "run the old config again");
+  assert.equal(stripEcho("Milo hold on, use Postgres", said), "Milo hold on, use Postgres");
 });

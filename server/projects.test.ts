@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONFIG_FILE, loadProjects, loadSaved, saveRoster, branchOf, projectFor } from "./projects.ts";
+import { confusable } from "../web/route.js";
+import { CONFIG_FILE, aliasesOf, clearName, modelOf, loadProjects, loadSaved, saveRoster, branchOf, projectFor } from "./projects.ts";
 import { identityFor, poolSize, CENTRAL } from "./identity.ts";
 
 const withConfig = async (body: unknown) => {
@@ -59,8 +60,20 @@ test("explicit settings win, and nonsense falls back instead of throwing", async
 test("duplicate names are made unique, because names are matched from speech", async () => {
   const root = await withConfig({ projects: [{ name: "Juno", dir: "/a" }, { name: "Juno", dir: "/b" }] });
   const ps = await loadProjects(root, "/tmp/x");
-  assert.deepEqual(ps.map((p) => p.name), ["Juno", "Juno2"]);
+  // not "Juno2": that is hard to say and still sounds like Juno; a clear spare name instead
+  assert.equal(ps[0].name, "Juno");
+  assert.equal(confusable(ps[1].name, ["Ada", "Juno"]), null);
   assert.equal(new Set(ps.map((p) => p.id)).size, 2);
+});
+
+test("a name that sounds like another on the call is swapped for a clear one", async () => {
+  // Otto blurs into Ada, Mila into Milo: either would make someone hard to reach by voice
+  const root = await withConfig({ projects: [{ name: "Milo", dir: "/a" }, { name: "Otto", dir: "/b" }, { name: "Mila", dir: "/c" }] });
+  const names = (await loadProjects(root, "/tmp/x")).map((p) => p.name);
+  assert.equal(names[0], "Milo");
+  for (const n of names.slice(1)) assert.equal(confusable(n, ["Ada", ...names.filter((x) => x !== n)]), null, n);
+  assert.equal(clearName("Felix", ["Ada", "Milo"]), "Felix");
+  assert.notEqual(clearName("Ida", ["Ada"]), "Ida");
 });
 
 test("a broken config file is reported, not silently ignored", async () => {
@@ -86,8 +99,9 @@ test("a directory with no git repository reports no branch", async () => {
 test("no project can take the central agent's name", async () => {
   const root = await withConfig({ projects: [{ name: "Ada", dir: "/tmp/api" }] });
   const [p] = await loadProjects(root, "/tmp/x");
-  assert.equal(p.name, "Ada2");
-  assert.equal(projectFor("/tmp/code/ada", 0, []).name, "Ada2");
+  assert.notEqual(p.name.toLowerCase(), "ada");
+  assert.equal(confusable(p.name, ["Ada"]), null);
+  assert.equal(confusable(projectFor("/tmp/code/ada", 0, []).name, ["Ada"]), null);
 });
 
 test("projects from earlier calls come back with their conversation, unless already listed", async () => {
@@ -97,4 +111,24 @@ test("projects from earlier calls come back with their conversation, unless alre
   const ps = await loadProjects(root, "/tmp/x", await loadSaved(file));
   assert.deepEqual(ps.map((p) => [p.name, p.resume]), [["Rex", undefined], ["Juno", "abc"]]);
   assert.deepEqual(await loadSaved(join(root, "missing.json")), []);
+});
+
+test("aliases are kept as lowercase single words, without duplicates or junk", () => {
+  assert.deepEqual(aliasesOf(["Mylo", "mylo", "Myla", "two words", "", 5, "x"]), ["mylo", "myla"]);
+  assert.equal(aliasesOf("mylo"), undefined);
+  assert.equal(aliasesOf([]), undefined);
+});
+
+test("model names are kept only in the form the CLI takes them", () => {
+  assert.equal(modelOf("sonnet"), "sonnet");
+  assert.equal(modelOf("claude-opus-5-5[1m]"), "claude-opus-5-5[1m]");
+  for (const bad of ["", "default", "--dangerous", "rm -rf /", 5, null]) assert.equal(modelOf(bad), undefined);
+});
+
+test("a voice can be changed the way it is natural to say it", async () => {
+  const { voicePatch } = await import("./call.ts");
+  const now = { rate: 1, volume: 1, pitch: 1 };
+  assert.deepEqual(voicePatch({ name: "Karen", speed: "faster", side: "left" }, now), { voice: "Karen", rate: 1.12, volume: undefined, pitch: undefined, pan: -0.7 });
+  assert.equal(voicePatch({ volume: "60%" }, now).volume, 0.6);
+  assert.equal(voicePatch({ volume: "quieter" }, now).volume, 0.8);
 });
