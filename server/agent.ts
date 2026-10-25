@@ -28,6 +28,9 @@ export class ClaudeSession implements Agent {
   private sent: { turn: number; text: string } | null = null;
   /** Permission requests the CLI is waiting on us to answer. */
   private asks = new Set<string>();
+  private toolInputs = new Map<string, unknown>();
+  /** Rules the lead has allowed out loud, for this session only. */
+  private allowed: string[] = [];
 
   constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string }) {
     this.cwd = opts.cwd;
@@ -152,6 +155,16 @@ export class ClaudeSession implements Agent {
     return true;
   }
 
+  /**
+   * Allow something the safety check refused, for this session only, as an exact permission rule
+   * ("Bash(git push --force origin main)"). The CLI takes runtime settings over the control
+   * channel; the whole list is sent each time, so nothing allowed earlier is dropped.
+   */
+  allow(rule: string): void {
+    if (!this.allowed.includes(rule)) this.allowed.push(rule);
+    this.write({ type: "control_request", request_id: `allow-${++this.controls}`, request: { subtype: "apply_flag_settings", settings: { permissions: { allow: this.allowed } } } });
+  }
+
   close(): void {
     this.queue = [];
     const c = this.child;
@@ -210,6 +223,9 @@ export class ClaudeSession implements Agent {
     }
     if (ev.type === "control_response") {
       const r = ev.response ?? {};
+      if (r.subtype === "error" && String(r.request_id ?? "").startsWith("allow-")) {
+        this.emit(this.active, { kind: "error", message: `Could not allow that: ${r.error}` });
+      }
       if (r.subtype === "error" && String(r.request_id ?? "").startsWith("mode-")) {
         this.emit(this.active, { kind: "error", message: `Could not change what this project may do: ${r.error}` });
       }
@@ -228,7 +244,12 @@ export class ClaudeSession implements Agent {
       else if (e.delta?.type === "thinking_delta") this.emit(turn, { kind: "thinking", text: e.delta.thinking });
     } else if (ev.type === "assistant" && live) {
       for (const b of ev.message?.content ?? []) {
-        if (b.type === "tool_use") this.emit(turn, { kind: "tool", id: b.id, name: b.name, input: b.input });
+        if (b.type === "tool_use") {
+          // remembered briefly, so a refusal can say exactly what was refused
+          this.toolInputs.set(b.id, b.input);
+          if (this.toolInputs.size > 50) this.toolInputs.delete(this.toolInputs.keys().next().value);
+          this.emit(turn, { kind: "tool", id: b.id, name: b.name, input: b.input });
+        }
         else if (b.type === "text" && !this.streamed) this.emit(turn, { kind: "text", text: b.text });
       }
       this.streamed = false;
@@ -244,7 +265,8 @@ export class ClaudeSession implements Agent {
     } else if (ev.type === "system" && ev.subtype === "permission_denied" && live) {
       // `manual` mode denies anything that would prompt and reports it here. This is how a
       // background project asks for permission: there is no prompt to answer, only a refusal.
-      this.emit(turn, { kind: "permission", tool: String(ev.tool_name ?? "a tool"), toolUseId: String(ev.tool_use_id ?? ""), message: String(ev.message ?? "") });
+      const toolUseId = String(ev.tool_use_id ?? "");
+      this.emit(turn, { kind: "permission", tool: String(ev.tool_name ?? "a tool"), toolUseId, input: this.toolInputs.get(toolUseId) ?? {}, message: String(ev.message ?? "") });
     } else if (ev.type === "result") {
       this.asks.clear();
       const interrupted = this.interrupted.delete(turn) || ev.subtype === "error_during_execution";

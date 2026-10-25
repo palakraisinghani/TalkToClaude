@@ -1,4 +1,7 @@
 /**
+ * What the assistant says on a project's behalf, when the lead asks to hear it. Plain facts: how to
+ * answer is up to the page, which knows whether the lead is listening for an answer right now.
+ *
  * What the central voice says on a project's behalf. Only one project is ever on the line, so
  * everything the others need to tell you arrives here and is read out by the central voice,
  * always naming the project first so you know who it is about before you know what it is.
@@ -56,6 +59,23 @@ export function describeAction(tool: string, input: any): { phrase: string; deta
   }
 }
 
+/**
+ * The narrowest permission rule that allows exactly this action and nothing else: one command,
+ * one file, one site. Used when the lead says yes to something the safety check refused.
+ */
+export function ruleFor(tool: string, input: any): string | null {
+  const i = input ?? {};
+  switch (tool) {
+    case "Bash": return i.command ? `Bash(${String(i.command)})` : null;
+    case "Write": case "Edit": case "MultiEdit": return i.file_path ? `${tool === "Write" ? "Write" : "Edit"}(${String(i.file_path)})` : null;
+    case "NotebookEdit": return i.notebook_path ? `NotebookEdit(${String(i.notebook_path)})` : null;
+    case "WebFetch": {
+      try { return `WebFetch(domain:${new URL(String(i.url)).hostname})`; } catch { return null; }
+    }
+    default: return null;
+  }
+}
+
 /** The first sentence of what a project said last, used as its own one-line report. */
 export function summarise(said: string[]): string {
   const last = [...said].reverse().find((s) => s.trim());
@@ -70,7 +90,7 @@ export function notification(kind: NotifyKind, name: string, project: string, in
   let detail: string;
   if (kind === "permission") {
     const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
-    text = `${name} wants to ${phrase}. Say allow ${name}, or deny.`;
+    text = `${name} wants to ${phrase}.`;
     detail = info.message || `${name} wants to ${phrase}.`;
   } else if (kind === "blocked") {
     const phrase = info.phrase || permissionPhrase(info.tool ?? "a tool");
@@ -78,13 +98,13 @@ export function notification(kind: NotifyKind, name: string, project: string, in
     detail = info.message || "";
   } else if (kind === "question") {
     const q = (info.question ?? "").trim();
-    text = `${name} has a question. ${q} Say tell ${name}, and your answer.`;
+    text = `${name} asks: ${q}`;
     detail = q;
   } else if (kind === "failed") {
     text = `${name} hit a problem.${summary ? ` ${summary}` : ""}`;
     detail = info.message || summary;
   } else {
-    text = summary ? `${name} is done. ${summary}` : `${name} is done.`;
+    text = summary ? `${name} has finished. ${summary}` : `${name} has finished.`;
     detail = summary;
   }
   return { project, name, kind, text, detail, at: Date.now() };

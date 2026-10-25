@@ -13,7 +13,8 @@ const norm = (t) => t.toLowerCase().replace(/[^\w' ]/g, " ").replace(/\s+/g, " "
 export const PAUSE = /^(pause|pause please|please pause|hold on|hold up|wait|wait a (sec|second|moment|minute)|one sec(ond)?|hang on|just a (sec|second|moment))$/;
 export const RESUME = /^(go on|go ahead|continue|resume|carry on|keep going|okay go on|ok go on|yes go on|please continue|unpause)$/;
 export const STOP = /^(stop|stop it|stop talking)$/;
-export const SLEEP = /^go to sleep$/;
+// ends the call outright, from anywhere on it
+export const SLEEP = /^(go to sleep|bye|goodbye|good bye|bye bye|bye for now|bye ada|goodbye ada|thanks bye|thank you bye|ok bye|okay bye|end (the )?call|hang up|that's it for (now|today) bye)$/;
 export const REPEAT = /^(repeat|repeat that|say that again)$/;
 export const AUDIO = /^switch to audio( only)?( mode)?$/;
 export const VISUAL = /^switch to (visual|video|screen)( mode)?$/;
@@ -21,15 +22,18 @@ export const SHORTER = /^shorter$/;
 const STATUS = /^(status|status report|roll call|everyone|where are we|what'?s? (the )?status|how is everyone|sitrep)$/;
 const STOP_ALL = /^(stop everyone|stop everything|everyone stop|stop all)$/;
 export const STANDUP = /^(stand ?up|stand-up|team (update|updates|meeting)|everyone report|round the table|go round the table|daily stand ?up)$/;
-export const UPDATES = /^(updates?|any updates|what did i miss|what'?s new|notifications?|read (me )?(the )?(updates|notifications)|go ahead ada|tell me now)$/;
+export const UPDATES = /^(updates?|any updates|what did i miss|what'?s new|notifications?|read (me )?(the )?(updates|notifications)|tell me now|what'?s waiting|who'?s waiting|who is waiting|what is waiting|bring (them|it|those) up|go through (them|the queue)|what do they need|who needs me|anyone waiting|is anyone waiting)$/;
+export const NEXT = /^(next|who'?s next|next please|next person|what'?s next|take me to the next|go to the next)$/;
+export const HOLD = /^(hold (my|all|the) calls|do not disturb|don'?t disturb me|no interruptions|focus mode|quiet please|hold everything)$/;
+export const UNHOLD = /^(i'?m free|i am free|take calls|resume calls|you can interrupt( me)?|calls back on|i'?m back|interrupt me again)$/;
 
 /** Patterns handled entirely on the page. Matched before the echo guard, so they never vanish. */
-export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL, UPDATES, STANDUP];
+export const LOCAL = [PAUSE, RESUME, STOP, SLEEP, REPEAT, AUDIO, VISUAL, SHORTER, STATUS, STOP_ALL, UPDATES, STANDUP, NEXT, HOLD, UNHOLD];
 
 const LOCAL_KINDS = [
   [PAUSE, "pause"], [RESUME, "resume"], [STOP, "stop"], [SLEEP, "sleep"],
   [REPEAT, "repeat"], [AUDIO, "audio"], [VISUAL, "visual"], [SHORTER, "shorter"],
-  [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"],
+  [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [HOLD, "hold"], [UNHOLD, "unhold"],
 ];
 
 /** One edit apart, for a bare name said on its own where a wrong guess costs nothing. */
@@ -106,7 +110,7 @@ export function route(raw, projects, { waiting = null } = {}) {
   }
 
   // "switch to ada" / "talk to ada" / "put ada on"
-  const switchTo = /^(switch to|talk to|go to|bring up|put on|put)\s+(\w+)(\s+on)?$/.exec(t);
+  const switchTo = /^(switch to|talk to|go to|go back to|back to|bring up|put on|put|put me through to|give the floor to|over to)\s+(\w+)(\s+on)?$/.exec(t);
   if (switchTo) {
     const target = findExact(projects, switchTo[2]) ?? findNear(projects, switchTo[2]);
     if (target) return { kind: "focus", project: target.id };

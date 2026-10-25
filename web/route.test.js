@@ -83,3 +83,17 @@ test("asking for updates is a page command", () => {
 test("a stand-up is a page command", () => {
   for (const s of ["stand-up", "standup", "team update", "go round the table"]) assert.deepEqual(route(s, P), { kind: "local", name: "standup" });
 });
+
+test("moving around the team hands-free", () => {
+  assert.deepEqual(route("next", P), { kind: "local", name: "next" });
+  assert.deepEqual(route("who's waiting?", P), { kind: "local", name: "updates" });
+  assert.deepEqual(route("hold my calls", P), { kind: "local", name: "hold" });
+  assert.deepEqual(route("I'm free", P), { kind: "local", name: "unhold" });
+  assert.deepEqual(route("back to Ada", P), { kind: "focus", project: "ada" });
+  assert.deepEqual(route("put me through to Rex", P), { kind: "focus", project: "rex" });
+});
+
+test("bye ends the call from anywhere", () => {
+  for (const s of ["Bye.", "goodbye", "bye bye", "okay, bye", "hang up", "end the call"]) assert.deepEqual(route(s, P), { kind: "local", name: "sleep" }, s);
+  assert.equal(route("bye the way, run the tests", P).kind, "ask");
+});

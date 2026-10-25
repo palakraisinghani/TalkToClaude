@@ -22,6 +22,8 @@ export interface ProjectConfig {
   engagement: Engagement;
   /** A past Claude session to pick up when this project's agent is first started. */
   resume?: string;
+  /** Extra instructions from the lead for this agent alone, added to its system prompt. */
+  prompt?: string;
 }
 
 interface RawProject {
@@ -35,6 +37,7 @@ interface RawProject {
   permissionMode?: PermissionMode;
   backgroundPermissionMode?: PermissionMode;
   engagement?: Engagement;
+  prompt?: string;
 }
 
 export const CONFIG_FILE = "buddy.projects.json";
@@ -62,6 +65,7 @@ export interface SavedProject {
   name: string;
   dir: string;
   sessionId?: string;
+  prompt?: string;
 }
 
 /** The projects opened in earlier calls. A missing or broken file just means none. */
@@ -109,7 +113,7 @@ export async function loadProjects(root: string, fallbackDir: string, saved: Sav
     if (listed.has(s.dir)) continue;
     listed.add(s.dir);
     if (s.sessionId) resumes.set(raw.length, s.sessionId);
-    raw.push({ name: s.name, dir: s.dir });
+    raw.push({ name: s.name, dir: s.dir, prompt: s.prompt });
   }
 
   // the central agent's name is taken before anyone else's: you must always be able to reach her
@@ -141,6 +145,7 @@ export async function loadProjects(root: string, fallbackDir: string, saved: Sav
       backgroundPermissionMode: mode(p.backgroundPermissionMode, "auto"),
       engagement: p.engagement === "delegate" ? "delegate" : "pair",
       resume: resumes.get(i),
+      prompt: typeof p.prompt === "string" && p.prompt.trim() ? p.prompt.trim() : undefined,
     };
   });
 }
@@ -171,6 +176,7 @@ export function projectFor(dir: string, index: number, taken: Iterable<string>, 
     permissionMode: mode(overrides.permissionMode, "auto"),
     backgroundPermissionMode: mode(overrides.backgroundPermissionMode, "auto"),
     engagement: overrides.engagement === "delegate" ? "delegate" : "pair",
+    prompt: overrides.prompt?.trim() || undefined,
   };
 }
 

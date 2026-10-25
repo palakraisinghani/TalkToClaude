@@ -3,7 +3,7 @@ import { CENTRAL, CENTRAL_ID, CENTRAL_NAME } from "./identity.ts";
 import { clean } from "./cleaner.ts";
 import { formatContext, type CallContext } from "./context.ts";
 import { narrate, toolDetail, toolLabel } from "./narration.ts";
-import { describeAction, notification, summarise, type Notification } from "./notify.ts";
+import { describeAction, notification, ruleFor, summarise, type Notification } from "./notify.ts";
 import { ReplyParser, type ParsedEvent } from "./parser.ts";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -32,6 +32,11 @@ interface Ask {
   input: unknown;
   suggestions: unknown[];
   at: number;
+  /**
+   * Set when the safety check refused it outright rather than pausing to ask. The agent has
+   * carried on without it; saying yes allows exactly this rule and asks the agent to try again.
+   */
+  retry?: string;
 }
 
 /** Everything the server keeps for one agent — a project's, or the central one — for one call. */
@@ -55,6 +60,9 @@ class Project {
   asks: Ask[] = [];
   /** A question this project put to the person while nobody was listening to it. */
   pendingQuestion: string | null = null;
+  /** Identifies the pending question, so the page can tell when it has been answered. */
+  questionId = "";
+  questionAt = 0;
   /** Control tags the central agent wrote this turn, carried out once the turn ends. */
   actions: Action[] = [];
   branch = "";
@@ -186,6 +194,7 @@ export class Call {
       p.lastSpokeAt = 0;
     }
     p.pendingQuestion = null;
+    p.questionId = "";
     const lead = [formatContext(this.mode, ctx, onLine), from, p.central ? this.situation() : ""].filter(Boolean).join(" ");
     const turn = p.session!.send(`${lead} ${text}`, { interrupt: !queued, replaceQueued: queued && !!ctx?.replace });
     p.turn = turn;
@@ -243,7 +252,14 @@ export class Call {
     const ask = requestId ? p.asks.find((a) => a.requestId === requestId) : p.asks[0];
     if (!ask) return false;
     p.asks = p.asks.filter((a) => a !== ask);
-    const ok = p.session.answer(ask.requestId, allow, { always, suggestions: ask.suggestions, input: ask.input });
+    let ok = true;
+    if (ask.retry) {
+      // refused earlier and already worked around: allow exactly this, then have it tried again
+      if (allow) {
+        p.session.allow(ask.retry);
+        this.ask(id, `[the lead allowed this out loud: ${ask.detail || ask.phrase}] It was refused before and is allowed now, exactly as it was. Try it again, then carry on.`, null, { keepFocus: true, queue: true });
+      }
+    } else ok = p.session.answer(ask.requestId, allow, { always, suggestions: ask.suggestions, input: ask.input });
     if (p.state === "blocked" && !p.asks.length) p.state = "working";
     this.emit(p, { type: "answered", project: id, requestId: ask.requestId, allow, always: always || undefined, phrase: ask.phrase });
     this.publish();
@@ -344,7 +360,7 @@ export class Call {
         const dir = join(this.opts.home, folder);
         await mkdir(dir, { recursive: true });
         if (body) await this.writeBrief(dir, attrs.name || folder, body);
-        return this.adopt(dir, { name: attrs.name, resume: false, brief: body, focus: attrs.focus });
+        return this.adopt(dir, { name: attrs.name, resume: false, brief: body, focus: attrs.focus, prompt: attrs.prompt });
       }
       case "open": {
         const found = await resolveDir(attrs.path ?? "", this.opts.home);
@@ -352,7 +368,7 @@ export class Call {
         if (found.kind === "ambiguous") return `"${attrs.path}" matches several folders: ${found.options!.map(tilde).join(", ")}. Ask the person which one, then open it by its full path.`;
         if (found.kind === "missing") return `No folder matching "${attrs.path}" was found${found.dir ? ` (${tilde(found.dir)} does not exist)` : ""}. Ask the person where it is, or offer to make a new project.`;
         const resume = attrs.resume === "new" ? false : attrs.resume === "last" ? true : attrs.resume || undefined;
-        return this.adopt(found.dir!, { name: attrs.name, resume, brief: body, focus: attrs.focus });
+        return this.adopt(found.dir!, { name: attrs.name, resume, brief: body, focus: attrs.focus, prompt: attrs.prompt });
       }
     }
     return null;
@@ -363,7 +379,7 @@ export class Call {
    * once, in the background unless asked otherwise; without one, it is put on the line.
    * `resume`: undefined to find out, false for a fresh session, true for the latest, or an id.
    */
-  private async adopt(dir: string, o: { name?: string; resume?: string | boolean; brief?: string; focus?: string }): Promise<string | null> {
+  private async adopt(dir: string, o: { name?: string; resume?: string | boolean; brief?: string; focus?: string; prompt?: string }): Promise<string | null> {
     const existing = [...this.projects.values()].find((p) => !p.central && p.config.dir === dir);
     if (existing) {
       if (existing.state === "parked") existing.state = "cold";
@@ -381,7 +397,7 @@ export class Call {
       resume = sessions[0]?.id;
     } else if (typeof o.resume === "string") resume = o.resume;
 
-    const config = projectFor(dir, this.order.length, this.order, o.name ? { name: o.name } : {});
+    const config = projectFor(dir, this.order.length, this.order, { ...(o.name ? { name: o.name } : {}), ...(o.prompt ? { prompt: o.prompt } : {}) });
     config.resume = resume;
     const p = new Project(config);
     p.branch = await branchOf(dir);
@@ -423,9 +439,10 @@ export class Call {
    * screen is exact, so there is nothing for the central agent to interpret. Returns a problem
    * to show, or null.
    */
-  async create(o: { name?: string; folder?: string; path?: string; brief?: string; focus?: boolean }): Promise<string | null> {
+  async create(o: { name?: string; folder?: string; path?: string; brief?: string; focus?: boolean; prompt?: string }): Promise<string | null> {
     const attrs: Record<string, string> = {};
     if (o.name) attrs.name = o.name;
+    if (o.prompt) attrs.prompt = o.prompt;
     if (o.focus) attrs.focus = "true";
     if (o.path) {
       attrs.path = o.path;
@@ -447,7 +464,8 @@ export class Call {
       if (p.report) bits.push(`last said: "${oneLine(p.report)}"`);
       return bits.join(", ");
     });
-    return `[projects: ${lines.length ? lines.join("; ") : "none yet"}]`;
+    const waiting = this.order.map((id) => this.projects.get(id)!).filter((p) => p.asks.length || p.pendingQuestion).map((p) => p.config.name);
+    return `[projects: ${lines.length ? lines.join("; ") : "none yet"}] [waiting on the lead: ${waiting.length ? waiting.join(", ") : "nobody"}; the page tracks these and reads them out when the lead asks]`;
   }
 
   // ---------- internals ----------
@@ -468,7 +486,11 @@ export class Call {
       asks: p.asks.map((a) => ({ requestId: a.requestId, tool: a.tool, phrase: a.phrase, detail: a.detail, reason: a.reason, at: a.at })),
       sessionId: p.sessionId || null,
       resumed: !!p.config.resume,
+      prompt: p.config.prompt ?? null,
       question: p.pendingQuestion,
+      questionId: p.questionId || null,
+      // how long this agent has been waiting on the lead, for ordering the queue
+      waitingSince: p.asks[0]?.at ?? (p.pendingQuestion ? p.questionAt : null),
       report: p.report,
       turn: p.turn,
       turns: p.turnsDone,
@@ -485,7 +507,7 @@ export class Call {
     if (!this.opts.rosterFile) return;
     const list = this.order.map((id) => {
       const p = this.projects.get(id)!;
-      return { name: p.config.name, dir: p.config.dir, sessionId: p.sessionId || undefined };
+      return { name: p.config.name, dir: p.config.dir, sessionId: p.sessionId || undefined, prompt: p.config.prompt };
     });
     saveRoster(this.opts.rosterFile, list).catch((e) => console.error("Could not save the roster:", e.message));
   }
@@ -497,24 +519,25 @@ export class Call {
     const lines = [
       `# Who you are on this call`,
       ``,
-      `You are **${p.config.name}**, the voice of the project in \`${p.config.dir}\`.`,
+      `You are **${p.config.name}**, a member of the lead's team. Your project is the folder \`${p.config.dir}\`, and you are its own agent, with your own conversation.`,
+      ``,
+      `This is a live team meeting. The person on the call is **the lead**: they run the team, and they talk to one of you at a time. ${CENTRAL_NAME} is the lead's assistant: she sets projects up, hands out work on the lead's behalf, switches the lead between you, and keeps track of who needs the lead's input. She does not manage you and does not read your work.`,
       others.length
-        ? `There are other projects on this call: ${others.join(", ")}. Only ever speak for your own project, and never answer for another one. If the person asks about another project, say it is not yours and that ${CENTRAL_NAME} can help.`
-        : `You are the only project on this call so far.`,
+        ? `Your teammates are ${others.join(", ")}. Speak only for your own project; if the lead asks about another one, say it is not yours and that ${CENTRAL_NAME} can put them through.`
+        : `You are the only project on the team so far.`,
       ``,
-      `The person reaches you through ${CENTRAL_NAME}, who runs the call: she makes and opens projects, hands them work, and passes on what they need. Only one agent is on the line at a time. When you are **on the line**, everything in \`<say>\` is spoken aloud in your own voice. When you are **in the background**, your words are not spoken: ${CENTRAL_NAME} reads out a one-line summary instead, so make your final \`<say>\` of a turn a sentence that stands on its own as a report.`,
+      `## When you have the floor`,
+      `Each message says whether you are on the line. On the line, the lead is talking with you right now and everything in \`<say>\` is spoken aloud in your own voice. Talk like a teammate in a meeting: lead with the point, keep it short, and end with a clear ask or hand-back. ${p.config.engagement === "delegate" ? "You are in delegate mode: one line when you start and one when you finish, no running commentary." : "Give brief updates while you work, as the voice guide describes."}`,
       ``,
-      `A message that starts with \`[a task from ${CENTRAL_NAME}, on the person's behalf]\` is work assigned to you. Do it as if the person had asked you directly.`,
+      `## When you are in the background`,
+      `The lead is talking with someone else. Nothing you say is spoken. Work quietly. When you finish, make your final \`<say>\` one sentence that stands alone as your report: ${CENTRAL_NAME} will offer it to the lead when they are free.`,
+      `Only if you truly cannot go on without a decision from the lead, put one short, self-contained question in \`<question>…</question>\` and stop. It waits in the lead's queue; you get the answer as your next message. Do not ask about things you can reasonably decide yourself.`,
       ``,
-      `If you are in the background and need a decision from the person before you can go on, put it in \`<question>…</question>\` as one short, self-contained question, and stop. ${CENTRAL_NAME} will ask them when they are free, and you will get the answer as your next message. On the line, just ask in \`<say>\`.`,
-      ``,
-      p.config.engagement === "delegate"
-        ? `You are in delegate mode: work independently and speak rarely. One line when you start, one when you finish. No running commentary.`
-        : `You are in pair mode: talk while you work, as the voice guide describes.`,
-      ``,
-      `Ordinary work goes ahead on its own. Anything the safety check judges risky pauses you until the person answers; ${CENTRAL_NAME} asks them for you, so just wait, and carry on when it goes through. If the answer is no, carry on without it, or stop and say what is left undone. Never try to work around a refusal.`,
-      ``,
+      `## Work and permission`,
+      `A message starting \`[a task from ${CENTRAL_NAME}, on the person's behalf]\` is work from the lead, passed on by ${CENTRAL_NAME}. Do it as if the lead had asked you directly.`,
+      `Ordinary work goes ahead on its own. Anything the safety check judges risky pauses you until the lead answers; ${CENTRAL_NAME} brings it to them. Just wait, and carry on when it goes through. If the answer is no, carry on without it, or stop and say what is left undone. Never try to work around a refusal.`,
       `If your folder has a \`BRIEF.md\`, it is your mission: read it when you start, and keep to it.`,
+      ...(p.config.prompt ? [``, `## The lead's instructions for you`, p.config.prompt] : []),
     ];
     return lines.join("\n");
   }
@@ -616,10 +639,20 @@ export class Call {
         break;
       }
       case "permission": {
-        // refused outright by the safety check, with nobody asked: report it, there is nothing to grant
-        const { phrase } = describeAction(ev.tool, {});
-        this.emit(p, { type: "permission", project: id, turn, tool: ev.tool, text: ev.message, blocked: true });
-        this.queue(notification("blocked", p.config.name, id, { phrase, message: ev.message }));
+        // Refused outright by the safety check, with nobody asked. If it can be allowed exactly —
+        // one command, one file — it goes to the lead like any other request; saying yes allows
+        // that and has the agent try again. Otherwise it is just reported.
+        const { phrase, detail } = describeAction(ev.tool, ev.input);
+        const rule = ruleFor(ev.tool, ev.input);
+        this.emit(p, { type: "permission", project: id, turn, tool: ev.tool, phrase, detail, text: ev.message, blocked: true });
+        if (!rule) {
+          this.queue(notification("blocked", p.config.name, id, { phrase, message: ev.message }));
+          break;
+        }
+        const requestId = `denied-${ev.toolUseId || Date.now()}`;
+        p.asks.push({ requestId, tool: ev.tool, phrase, detail, reason: "The safety check stopped it.", input: ev.input, suggestions: [], at: Date.now(), retry: rule });
+        this.queue({ ...notification("permission", p.config.name, id, { phrase, message: [detail, "The safety check stopped it; allowing it lets this exact action through and has it tried again."].filter(Boolean).join("\n") }), requestId, onLine: onLine || undefined } as any);
+        this.publish();
         break;
       }
       case "error":
@@ -640,15 +673,18 @@ export class Call {
         // a background turn that ends on a question is a question, tagged or not
         if (!onLine && !ev.interrupted && !p.pendingQuestion && !p.central && /\?$/.test(p.report) && p.said.length) p.pendingQuestion = p.report;
         if (onLine) p.pendingQuestion = null; // asked out loud, to someone listening
-        // a turn that ended took its paused requests with it
-        p.asks = [];
+        // a turn that ended took its paused requests with it; refusals wait for the lead's answer
+        p.asks = p.asks.filter((a) => a.retry);
+        if (p.pendingQuestion && !p.questionId) { p.questionId = `q-${id}-${turn}`; p.questionAt = Date.now(); }
+        if (!p.pendingQuestion) p.questionId = "";
         p.state = p.pendingQuestion ? "blocked" : p.session?.isBusy() ? "working" : "warm";
         this.emit(p, { type: "done", project: id, turn, interrupted: ev.interrupted || undefined });
         // the point of working in parallel: when a project you are not listening to finishes,
         // the central voice tells you, with that project's own closing line as the report
         if (!onLine && !ev.interrupted) {
-          if (p.pendingQuestion) this.queue(notification("question", p.config.name, id, { question: p.pendingQuestion }));
-          else this.queue(notification("finished", p.config.name, id, { said: p.said }));
+          if (p.pendingQuestion) this.queue({ ...notification("question", p.config.name, id, { question: p.pendingQuestion }), questionId: p.questionId } as any);
+          // more work already queued behind this turn (a retry, a follow-up): not finished yet
+          else if (!p.session?.isBusy()) this.queue(notification("finished", p.config.name, id, { said: p.said }));
         }
         this.publish();
         const actions = p.actions;

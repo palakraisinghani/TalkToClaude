@@ -3,7 +3,7 @@ export type AgentEvent =
   | { kind: "thinking"; text: string }
   | { kind: "tool"; id: string; name: string; input: unknown }
   | { kind: "tool_result"; id: string; ok: boolean; summary: string; detail: string }
-  | { kind: "permission"; tool: string; toolUseId: string; message: string }
+  | { kind: "permission"; tool: string; toolUseId: string; input: unknown; message: string }
   /** The agent is paused on an action that needs a person's yes or no. */
   | { kind: "ask"; requestId: string; tool: string; input: any; reason: string; title: string; suggestions: unknown[] }
   | { kind: "done"; sessionId: string; interrupted: boolean }

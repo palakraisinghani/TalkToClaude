@@ -12,6 +12,7 @@ import { ensureCert, localAddresses, multiplex } from "./tls.ts";
 import { CENTRAL, CENTRAL_ID, CENTRAL_NAME } from "./identity.ts";
 import { loadProjects, loadSaved, type ProjectConfig } from "./projects.ts";
 import { MoonshineSTT } from "./stt.ts";
+import { pickFolder } from "./picker.ts";
 import type { Mode, Rewriter } from "./types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -203,12 +204,20 @@ wss.on("connection", (ws: WebSocket) => {
           send({ type: "note", project: m.project, text: "There is nothing waiting for permission there." });
         }
         break;
+      case "pick-folder":
+        // opens the system's own folder chooser on this machine, and answers with the path
+        pickFolder(homedir()).then(
+          (path) => send({ type: "picked", path }),
+          (e) => send({ type: "picked", path: null, error: (e as Error).message }),
+        );
+        break;
       case "create": {
         const problem = await call?.create({
           name: m.name ? String(m.name) : undefined,
           folder: m.folder ? String(m.folder) : undefined,
           path: m.path ? String(m.path) : undefined,
           brief: m.brief ? String(m.brief) : undefined,
+          prompt: m.prompt ? String(m.prompt).slice(0, 8000) : undefined,
           focus: !!m.focus,
         });
         if (problem) send({ type: "note", text: problem, problem: true });
