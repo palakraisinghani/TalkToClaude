@@ -41,6 +41,7 @@ const useTls = process.env.BUDDY_TLS === "1" || (onLan && process.env.BUDDY_TLS 
 const TYPES: Record<string, string> = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
   ".wasm": "application/wasm", ".svg": "image/svg+xml", ".onnx": "application/octet-stream",
+  ".png": "image/png", ".webmanifest": "application/manifest+json", ".json": "application/json",
 };
 // browser-side voice activity detection, served from node_modules so the page needs no CDN
 const STATIC: [string, string][] = [
@@ -252,7 +253,9 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   // A page on this machine loads an original picture in milliseconds, so it never waits for the
   // light copy; a phone over the network may wait a moment for it, since there bytes cost time.
   const addr = String(req?.socket?.remoteAddress ?? "");
-  const pictureWait = /^(::1|127\.|::ffff:127\.)/.test(addr) ? 0 : 1500;
+  // behind a proxy on this machine (tailscale serve, a reverse proxy) the page is still far away
+  const proxied = !!req?.headers?.["x-forwarded-for"];
+  const pictureWait = /^(::1|127\.|::ffff:127\.)/.test(addr) && !proxied ? 0 : 1500;
   sockets.add(ws);
   const send = (m: Record<string, any>) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
   send({ type: "stt", state: sttState, recogniser: hearing.recogniser });

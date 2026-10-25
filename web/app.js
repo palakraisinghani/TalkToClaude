@@ -460,7 +460,8 @@ function drawCanvas() {
 $("followFloor").onchange = () => { if (!$("followFloor").checked) canvasPick = focusedId ?? centralId; drawCanvas(); };
 
 // ---------- phone: one section at a time, chosen from the tab bar ----------
-const phone = matchMedia("(max-width: 700px)");
+// a phone, a tablet held upright, a small window, or anything short: kept in step with index.html
+const phone = matchMedia("(max-width: 900px), (max-height: 520px)");
 let tab = "call";
 function setTab(which) {
   tab = which;
@@ -2501,6 +2502,10 @@ $("newForm").elements.name.addEventListener("input", (e) => {
 });
 // Cancel is a plain button, not the form's first submit button: Enter in a field must seat the agent
 $("newCancel").onclick = () => $("newDlg").close("cancel");
+// the chooser opens on the computer running ClaudeCall: from a phone or tablet it would pop up out of
+// reach, so there the path is typed instead
+const onThisComputer = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+$("browseBtn").hidden = !onThisComputer;
 $("browseBtn").onclick = () => {
   $("pickNote").textContent = "A folder chooser has opened on this computer…";
   $("browseBtn").disabled = true;
@@ -2621,3 +2626,8 @@ addEventListener("pagehide", () => {
 
 connect();
 render();
+
+// installable as an app on phones, tablets and computers; browsers refuse a service worker over a
+// certificate they do not trust (the self-signed one on a local network), which is fine: it only
+// adds the "can't reach your computer" page
+if ("serviceWorker" in navigator && isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});

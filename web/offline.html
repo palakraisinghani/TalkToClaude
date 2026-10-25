@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#d77757">
+<title>ClaudeCall · can't reach your computer</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; background: #f5f4ed; color: #141413; padding: 24px; box-sizing: border-box; text-align: center; }
+  @media (prefers-color-scheme: dark) { body { background: #1f1e1b; color: #f0eee6; } p { color: #a8a69e; } }
+  img { width: 72px; height: 72px; }
+  h1 { font-size: 20px; margin: 16px 0 8px; }
+  p { color: #6b6a64; max-width: 32em; margin: 0 auto 20px; }
+  button { font: inherit; padding: 10px 22px; border-radius: 999px; border: 0; background: #d77757; color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <img src="/icon.svg" alt="">
+  <h1>Can't reach your computer</h1>
+  <p>ClaudeCall runs on your own computer. Check that it is awake, that ClaudeCall is running, and that this device is on the same network (or on Tailscale).</p>
+  <button onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>
