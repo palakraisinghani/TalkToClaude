@@ -24,7 +24,13 @@ until grep -qE "Speech recognition ready|failed to load" "$LOG"; do
   sleep 1
 done
 grep -q "Speech recognition ready" "$LOG" || { cat "$LOG"; echo "speech recognition failed" >&2; exit 1; }
-code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/")
+# speech recognition can be ready before the port is open (seen on a slow, emulated machine)
+code=000
+i=0
+while [ "$code" != 200 ] && [ $i -lt "${SMOKE_TIMEOUT:-300}" ] && kill -0 $PID 2>/dev/null; do
+  code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/" || true)
+  [ "$code" = 200 ] || { sleep 1; i=$((i + 1)); }
+done
 [ "$code" = 200 ] || { cat "$LOG"; echo "page answered $code" >&2; exit 1; }
 curl -sf -o /dev/null "http://localhost:$PORT/manifest.webmanifest"
 echo "ok: server up, speech recognition loaded, page served"
