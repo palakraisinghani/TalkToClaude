@@ -21,6 +21,32 @@ alert() {
   osascript -e "display alert \"ClaudeCall\" message \"$1\" as critical" >/dev/null 2>&1 || true
 }
 
+# Opened from the disk image (or from where macOS puts a downloaded app it has not let out of
+# quarantine yet): a service pointed in there breaks the moment the image is ejected. Copy the app
+# to Applications and open that copy instead.
+BUNDLE=$(cd "$RES/../.." && pwd)
+case "$BUNDLE" in
+  /Volumes/* | */AppTranslocation/*)
+    echo "opened from $BUNDLE: offering to move it to Applications"
+    DEST_APP="/Applications/ClaudeCall.app"
+    [ -w /Applications ] || DEST_APP="$HOME/Applications/ClaudeCall.app"
+    if osascript -e 'display dialog "ClaudeCall needs to be in your Applications folder to run in the background.\n\nCopy it there and open it?" with title "ClaudeCall" buttons {"Cancel", "Copy and Open"} default button 2 with icon note' >/dev/null 2>&1; then
+      mkdir -p "$(dirname "$DEST_APP")"
+      rm -rf "$DEST_APP"
+      if ditto "$BUNDLE" "$DEST_APP"; then
+        xattr -dr com.apple.quarantine "$DEST_APP" 2>/dev/null || true
+        echo "copied to $DEST_APP"
+        open "$DEST_APP"
+        # the disk image is no longer needed
+        case "$BUNDLE" in /Volumes/*) (sleep 2; hdiutil detach "$(dirname "$BUNDLE")" -quiet 2>/dev/null) & ;; esac
+      else
+        alert "ClaudeCall could not be copied to $(dirname "$DEST_APP"). Drag it there from the disk image, then open it from there."
+      fi
+    fi
+    exit 0
+    ;;
+esac
+
 # Opened from Finder, the PATH is the bare system one: take the one your terminal has, so the
 # service finds claude, git and the rest the way you would
 LOGIN_PATH=$("${SHELL:-/bin/zsh}" -lic 'printf %s "$PATH"' 2>/dev/null | tail -n 1)
