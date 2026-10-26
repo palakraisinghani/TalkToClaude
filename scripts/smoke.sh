@@ -15,7 +15,8 @@ echo "node $($RUNNER "$DIR/node/bin/node" -v) ($($RUNNER uname -m))"
 BUDDY_TOKEN=smoke PORT=$PORT BUDDY_HOME="$TMP/home" BUDDY_DATA="$TMP/data" BUDDY_MODEL_CACHE="$TMP/models" \
   $RUNNER "$DIR/node/bin/node" server/index.ts >"$LOG" 2>&1 &
 PID=$!
-trap 'kill $PID 2>/dev/null; wait $PID 2>/dev/null; rm -rf "$TMP"' EXIT
+# the server stopped on purpose exits 143 (terminated): that is not this check failing
+trap 'kill $PID 2>/dev/null; wait $PID 2>/dev/null || true; rm -rf "$TMP"' EXIT
 i=0
 until grep -qE "Speech recognition ready|failed to load" "$LOG"; do
   i=$((i + 1))
