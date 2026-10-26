@@ -37,7 +37,11 @@ Needs Claude Code, installed and signed in (ClaudeCall helps with that once it i
 More: README.md in app/.
 TXT
 # xz: about a third smaller than gzip here, and every current Linux unpacks it
-COPYFILE_DISABLE=1 XZ_OPT=-9 tar --format ustar --no-xattrs --no-mac-metadata -cJf "$OUT" -C "$BUILD" ClaudeCall
+# plain ustar, and on a Mac none of its own file labels (GNU tar has no such options, nor needs them)
+TARFLAGS="--format ustar"
+tar --version 2>/dev/null | grep -q bsdtar && TARFLAGS="$TARFLAGS --no-xattrs --no-mac-metadata"
+# shellcheck disable=SC2086
+COPYFILE_DISABLE=1 XZ_OPT=-9 tar $TARFLAGS -cJf "$OUT" -C "$BUILD" ClaudeCall
 DEB="$ROOT/dist/ClaudeCall-$VERSION-linux-$ARCH.deb"
 # 0.1.0+<build time>: every build sorts after the one before, so apt upgrades even within a
 # version (it once refused: "claudecall is already the newest version")
