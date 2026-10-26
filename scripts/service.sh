@@ -155,14 +155,14 @@ WantedBy=default.target
 EOF
   systemctl --user daemon-reload
   systemctl --user enable --now "$UNIT"
-  echo "Tip: to keep it running while you are logged out: sudo loginctl enable-linger $USER"
+  echo "Tip: to keep it running while you are logged out: sudo loginctl enable-linger ${USER:-$(id -un)}"
 }
 
 cmd=${1:-}
 [ $# -gt 0 ] && shift
 case "$cmd" in
   install)
-    lan=0 port=${CLAUDECALL_PORT:-3000}
+    lan=${CLAUDECALL_LAN:-0} port=${CLAUDECALL_PORT:-3000}
     while [ $# -gt 0 ]; do
       case "$1" in
         --lan) lan=1 ;;

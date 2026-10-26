@@ -2,8 +2,8 @@
 # version tag (v1.2.3) publishes them as a GitHub release:
 #
 #   ClaudeCall-<version>-mac-apple-silicon.dmg
-#   ClaudeCall-<version>-linux-x64.tar.xz
-#   ClaudeCall-<version>-linux-arm64.tar.xz
+#   ClaudeCall-<version>-linux-x64.deb      ClaudeCall-<version>-linux-x64.tar.xz
+#   ClaudeCall-<version>-linux-arm64.deb    ClaudeCall-<version>-linux-arm64.tar.xz
 #   ClaudeCall-<version>-android.apk
 #
 # iPhone and iPad need nothing built: the computer serves ClaudeCall as an installable web app.
@@ -71,20 +71,25 @@ jobs:
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
       # both are built here; the arm64 one is chosen with npm's --cpu, nothing is compiled
       - run: npm run build:linux -- ${{ matrix.arch }}
-      - name: Check it starts (x64, natively)
+      - name: Install the .deb and check it starts (x64, natively)
         if: matrix.arch == 'x64'
-        run: sh scripts/smoke.sh build/linux-x64/ClaudeCall
+        run: |
+          sudo apt-get install -y ./dist/ClaudeCall-*-linux-x64.deb
+          test -L /usr/bin/claudecall && test -f /usr/share/applications/claudecall.desktop
+          sh /opt/claudecall/app/scripts/smoke.sh /opt/claudecall
       - uses: docker/setup-qemu-action@v3
         if: matrix.arch == 'arm64'
-      - name: Check it starts (arm64, emulated)
+      - name: Install the .deb and check it starts (arm64, emulated)
         if: matrix.arch == 'arm64'
         run: |
           docker run --rm --platform linux/arm64 -e SMOKE_TIMEOUT=900 -v "$PWD:/w" -w /w debian:bookworm-slim \
-            sh -c "apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null && sh scripts/smoke.sh build/linux-arm64/ClaudeCall"
+            sh -c "apt-get update -qq >/dev/null && apt-get install -y -qq ./dist/ClaudeCall-*-linux-arm64.deb >/dev/null && sh /opt/claudecall/app/scripts/smoke.sh /opt/claudecall"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
-          path: dist/*.tar.xz
+          path: |
+            dist/*.deb
+            dist/*.tar.xz
           if-no-files-found: error
 
   android:
@@ -146,7 +151,8 @@ jobs:
         run: |
           cat > notes.md <<'NOTES'
           **Mac (Apple silicon):** open the .dmg and drag ClaudeCall to Applications. The first time, right-click it and choose Open.
-          **Linux:** unpack the .tar.xz for your processor and run `./install.sh` (add `--lan` for phones on your Wi-Fi).
+          **Ubuntu / Debian:** `sudo apt install ./ClaudeCall-…-linux-x64.deb` (or `-arm64` on ARM), then open ClaudeCall from your app menu.
+          **Other Linux:** unpack the .tar.xz for your processor and run `./install.sh`.
           **Android:** install the .apk (allow installing from your browser when asked), then enter your computer's address and access code.
           **iPhone and iPad:** open ClaudeCall's address in Safari, then Share → Add to Home Screen.
 

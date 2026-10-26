@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ClaudeCall
+GenericName=Voice calls with your Claude team
+Comment=Lead your Claude team by voice
+Exec=claudecall
+Icon=claudecall
+Terminal=false
+Categories=Development;
+Keywords=claude;voice;agents;ai;
+StartupWMClass=ClaudeCall

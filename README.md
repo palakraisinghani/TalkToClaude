@@ -1,192 +1,216 @@
 # ClaudeCall
 
-Lead your Claude team by voice. You talk; Ada, your assistant, sets up projects and keeps track of
-who needs you; each project has its own Claude Code agent working in its own folder. One agent has
-the floor at a time, and the others keep working in the background.
+**Lead your Claude team by voice.** You talk; Ada, your assistant, sets up projects, hands out
+the work and tells you who needs you. Each project gets its own Claude Code agent, working in its
+own folder on your computer. One agent has the floor at a time, and the rest keep working in the
+background.
 
-ClaudeCall runs on your own computer (macOS or Linux). You use it from a browser on that computer,
-or from your phone or iPad. On any of them it can be installed as an app.
+This guide is for installing the app. To build it or work on it, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## What you need
+---
 
-- **macOS or Linux**
-- **Claude Code**, installed and signed in on that computer. Every agent is a Claude Code session.
-  ```sh
-  curl -fsSL https://claude.ai/install.sh | bash    # or: npm install -g @anthropic-ai/claude-code
-  claude auth login                                 # a Claude subscription; --console for API billing
-  ```
-  You don't have to do this first. After you connect, ClaudeCall checks for Claude Code. If it's
-  missing or signed out, it shows these steps. On the computer itself, a button opens Claude Code's
-  own sign-in. ClaudeCall never sees your password or token. You can also paste an Anthropic API
-  key there instead. It is kept next to ClaudeCall's settings, readable only by you.
-- **git** (for undo)
-- On Linux, optionally **zenity** for the "Choose folder" button
-- To run from source: **Node.js 23.6 or newer** (the downloads bring their own)
+## Before you start: Claude Code
+
+Every agent in ClaudeCall is a [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+session, so the computer you install ClaudeCall on needs Claude Code installed and signed in. In a
+terminal:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash
+claude auth login
+```
+
+`claude auth login` signs in with a Claude subscription. For API billing, use
+`claude auth login --console`.
+
+Not done yet? That's fine. When you open ClaudeCall it checks, and shows you these steps with a
+button that opens the sign-in. You can also paste an Anthropic API key there instead.
+
+You also need **git**; ClaudeCall uses it to undo an agent's changes. Macs have it once the developer
+tools are installed (`xcode-select --install`). On Linux, the `.deb` installs it for you.
+
+---
 
 ## Download
 
-Each version is on the GitHub **Releases** page, built by GitHub Actions (`.github/workflows/build.yml`):
+Get the latest version from the
+**[Releases page](https://github.com/palakraisinghani/TalkToClaude/releases)**:
 
-| | |
+| Your computer | Download |
 |---|---|
-| Mac (Apple silicon) | `ClaudeCall-<version>-mac-apple-silicon.dmg` |
-| Linux (Intel/AMD) | `ClaudeCall-<version>-linux-x64.tar.xz` |
-| Linux (ARM) | `ClaudeCall-<version>-linux-arm64.tar.xz` |
-| Android | `ClaudeCall-<version>-android.apk` |
-| iPhone, iPad | nothing to download; see [On your phone or iPad](#on-your-phone-or-ipad) |
+| Mac with Apple silicon (M1 or later) | `ClaudeCall-<version>-mac-apple-silicon.dmg` |
+| Ubuntu / Debian on Intel or AMD | `ClaudeCall-<version>-linux-x64.deb` |
+| Ubuntu / Debian on ARM | `ClaudeCall-<version>-linux-arm64.deb` |
+| Other Linux | `ClaudeCall-<version>-linux-x64.tar.xz` or `-arm64.tar.xz` |
 
-Intel Macs aren't supported: the speech recogniser's runtime no longer ships for them. They can
-still use ClaudeCall from a browser, served by another computer.
+Not sure which Linux one? Run `uname -m` in a terminal. `x86_64` means x64; `aarch64` means arm64.
 
-**Mac:** open the `.dmg` and drag ClaudeCall to Applications. If you open it straight from the
-disk image, it offers to copy itself there. Opening the app does two things:
-- starts ClaudeCall in the background, and keeps it running after login
-- shows it in a window of its own, already signed in, with the microphone allowed
+Intel Macs aren't supported, because the speech recogniser no longer runs on them.
 
-Closing the window doesn't stop your team: the agents keep working in the background.
+---
 
-To update, drag the new ClaudeCall from its disk image over the old one, even while it's open. The
-open window notices it was replaced and relaunches as the new version. The background service is
-restarted on the new build, and the app checks that the running server really is the new one.
-View → Open in Browser shows the same call in a browser tab.
+## Install on a Mac
 
-It starts clean: just Ada, no team yet. The projects she sets up go in `~/ClaudeCall`. Its
-settings and data go in `~/Library/Application Support/ClaudeCall`, and the speech model in
-`~/Library/Caches/ClaudeCall`. It runs on port 3747, so a copy run from source on 3000 doesn't get
-in its way. The app isn't signed with an Apple Developer ID yet. The first time,
-right-click it and choose **Open**, or allow it in System Settings → Privacy & Security.
+1. Open the `.dmg` and drag **ClaudeCall** onto **Applications**.
+2. Open ClaudeCall from Applications or Spotlight.
+   - The first time, macOS may say it can't check the app, because it isn't signed with an Apple
+     developer ID yet. Right-click ClaudeCall and choose **Open**, or go to System Settings →
+     Privacy & Security and click **Open Anyway**.
+   - If you open it straight from the disk image, it offers to copy itself to Applications. Say yes.
+3. ClaudeCall opens in its own window, already signed in. The first start takes about a minute
+   while the speech recogniser downloads.
+4. Press the call button (the phone, in the middle). Allow the microphone when macOS asks.
 
-**Linux:** unpack the `.tar.xz` (`tar -xf`) and run `./install.sh` (add `--lan` for phones on your Wi-Fi). It:
-- installs into `~/.local/share/claudecall`, with projects in `~/ClaudeCall` and port 3747
-- sets ClaudeCall up as a systemd user service
-- adds it to your app menu and adds a `claudecall` command; it opens in a window of its own when
-  Chrome, Chromium, Edge or Brave is installed, otherwise in your browser
+ClaudeCall runs in the background from then on and starts when you log in. Closing the window
+doesn't stop your team: agents keep working, and you can open the window again any time.
 
-To update, run the newer download's `install.sh`; your settings and projects are kept.
-
-**Android:** install the `.apk`; allow installing from your browser when Android asks. Enter your
-computer's address and the access code. Both are in ClaudeCall's **Settings → Phones and tablets**
-on the computer. The app then opens ClaudeCall full screen and allows the microphone. It keeps the
-screen on during a call. On a home network it asks once whether to trust your computer's own
-certificate. It's a window onto ClaudeCall on your computer, so the computer must be reachable:
-same Wi-Fi with `--lan`, or Tailscale.
-
-The first start downloads the speech model, which takes about a minute.
-
-### Releasing
-
-Push a version tag. GitHub Actions then:
-- runs the tests
-- builds the Mac and Linux downloads
-- checks each one starts, including loading speech recognition
-- publishes them as a release
+## Install on Ubuntu or Debian
 
 ```sh
-git tag v0.2.0 && git push origin v0.2.0
+sudo apt install ./ClaudeCall-<version>-linux-x64.deb      # or …-linux-arm64.deb
 ```
 
-**Android release key (optional).** Without one, each APK is signed with a throwaway key: it
-installs, but a newer version won't install over an older one. To fix that, make a key once and
-keep it safe. Losing it means users have to uninstall before updating.
+Then open **ClaudeCall** from your app menu, or run `claudecall` in a terminal.
+
+- The first time, it sets itself up as your background service; that takes a few seconds. The first
+  call takes about a minute longer while the speech recogniser downloads.
+- It opens in a window of its own if Chrome, Chromium, Edge or Brave is installed. Otherwise it
+  opens in your browser.
+- Each person on the computer gets their own ClaudeCall, with their own projects.
+
+Ubuntu 20.04 or newer and Debian 10 or newer work.
+
+## Install on other Linux
 
 ```sh
-keytool -genkeypair -v -keystore claudecall.jks -alias claudecall -keyalg RSA -keysize 4096 -validity 10000
-base64 -i claudecall.jks | pbcopy      # on Linux: base64 -w0 claudecall.jks
+tar -xf ClaudeCall-<version>-linux-x64.tar.xz
+cd ClaudeCall
+./install.sh
 ```
 
-Then add four secrets in the repository's Settings → Secrets and variables → Actions:
-- `ANDROID_KEYSTORE_BASE64` (the copied text)
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS` (`claudecall`)
-- `ANDROID_KEY_PASSWORD`
+This installs ClaudeCall for your user in `~/.local/share/claudecall`. It also adds it to your app
+menu and adds a `claudecall` command. It needs systemd (most distributions have it).
 
-Every push to `main` and every pull request runs the same builds. The results can be downloaded
-from the run's page. To build locally: `npm run build:mac` (on a Mac) or
-`npm run build:linux -- x64|arm64` (on a Mac or Linux).
+---
 
-## Run from source
+## Using it
+
+Press the call button (the phone) and talk. Some things to try:
+
+- **"Ada, start a project for a recipe website. Call the agent Kiwi."** Ada creates the folder,
+  briefs Kiwi, and Kiwi starts working in the background.
+- **Say an agent's name** ("Kiwi") to talk to it. Say **"Ada"** to come back to her.
+- **"What's waiting for me?"** reads out who needs your yes or an answer.
+- **"Plan mode"** makes the agent plan first and wait for your approval. **"Auto mode"** goes
+  back to normal.
+- **"Think harder"**, **"new conversation"**, **"compact"**, **"undo"**, **"stop Kiwi"**.
+- **"Bye"** ends the call. Your team keeps working.
+
+You can talk over anyone at any time; nothing they started is lost. You can also type instead of
+speaking. Typing `/` in the box shows commands like `/plan`, `/model opus`, `/effort high` and
+`/clear`.
+
+Agents ask before doing anything risky. Say **"yes"** or **"no"**. For something that can't be undone,
+like removing an agent from the team, say **"confirm"**.
+
+**Settings** (the sliders icon, top right) has:
+- **Voices:** each agent's voice, speed and side.
+- **How you speak:** your accent, so names are heard the way you say them.
+- **Teach names:** say a few names a few times so they're recognised by your voice.
+- **Models:** which Claude model each agent uses.
+- **Phones and tablets:** the address and access code for joining from another device.
+
+Where things live:
+- **Projects:** in `~/ClaudeCall`, one folder each.
+- **The app's own data:** `~/Library/Application Support/ClaudeCall` (Mac) or
+  `~/.config/claudecall` (Linux).
+
+---
+
+## From your phone or tablet
+
+ClaudeCall runs on your computer, and your phone joins it. Browsers only allow the microphone over a
+secure (https) address, so pick one of these.
+
+**Tailscale (recommended, works anywhere).** Install [Tailscale](https://tailscale.com) on the
+computer and the phone, then on the computer run:
 
 ```sh
-npm install
-npm start
-```
-
-Open http://localhost:3000 and enter the access code printed in the terminal. The first start
-downloads the speech recogniser model. After that it runs offline, apart from Claude itself.
-
-## Keep it running
-
-To start ClaudeCall at login and restart it if it stops:
-
-```sh
-npm run service install          # this computer only
-npm run service install -- --lan # also phones and tablets on your Wi-Fi
-```
-
-It prints the address and an access code that stays the same. Settings are in
-`~/.config/claudecall/env`; after changing them, run `npm run service restart`. Other commands:
-`npm run service status`, `logs`, `uninstall`.
-
-It runs as a launchd agent on macOS (log: `~/Library/Logs/ClaudeCall.log`) and a systemd user
-service on Linux (`journalctl --user -u claudecall`).
-
-## On your phone or iPad
-
-Browsers only allow the microphone over https, so a phone needs a secure address. There are two
-ways to get one.
-
-**Tailscale (recommended).** This gives you a real certificate, and it works away from home too.
-Install [Tailscale](https://tailscale.com) on the computer and on the phone, then on the computer:
-
-```sh
-npm run service install          # ClaudeCall itself stays private to this computer
-tailscale serve --bg 3000
+tailscale serve --bg 3747
 ```
 
 Open the `https://<computer>.<tailnet>.ts.net` address it prints on your phone.
 
-**Same Wi-Fi.** With `--lan`, ClaudeCall serves https on your network, using a certificate it made
-itself. Open the `https://<ip>:3000` address it prints and accept the warning once. If your computer's address changes, delete the `certs/`
-folder and restart, so a new certificate is made.
+**Same Wi-Fi.**
+1. Open ClaudeCall's settings file:
+   - Mac: `~/Library/Application Support/ClaudeCall/env`
+   - Linux: `~/.config/claudecall/env`
+2. Change `BUDDY_HOST=127.0.0.1` to `BUDDY_HOST=0.0.0.0`.
+3. Restart ClaudeCall:
+   - Mac: `launchctl kickstart -k gui/$(id -u)/com.claudecall`
+   - Linux: `systemctl --user restart claudecall`
+4. On the computer, open **Settings → Phones and tablets** to see the address.
+5. Open that address on your phone and accept the certificate warning once.
 
-Either way, enter the access code once on each device.
+Either way, enter the access code once. It's shown in **Settings → Phones and tablets** and in the
+settings file (`BUDDY_TOKEN`).
 
-## Install it as an app
+To use it as an app on your phone:
+- **iPhone or iPad:** in Safari, Share → **Add to Home Screen**.
+- **Android:** in Chrome, ⋮ → **Install app**, or install `ClaudeCall-<version>-android.apk`.
 
-- **iPhone / iPad (Safari):** Share → Add to Home Screen
-- **Android (Chrome):** ⋮ → Install app
-- **Mac:** Safari → File → Add to Dock, or Chrome / Edge → Install ClaudeCall
-- **Linux (Chrome / Edge / Chromium):** the install icon in the address bar
+---
 
-It opens full screen with its own icon. The layout fits a phone (one section at a time, with tabs at
-the bottom), a tablet either way up, and a laptop.
+## Updating
 
-## macOS and Linux differences
+- **Mac:** download the new `.dmg` and drag ClaudeCall over the old one, even while it's open.
+  It restarts itself as the new version.
+- **Ubuntu / Debian:** `sudo apt install ./ClaudeCall-<new version>-linux-x64.deb`. Anyone already
+  running ClaudeCall is moved onto the new version.
+- **Other Linux:** run `./install.sh` from the new download.
 
-Everything works on both, except two features that use macOS's own voices:
+Your projects, settings, learned names and access code are kept.
 
-- **Stereo voices** (each agent speaking from its own side)
-- **"Test how it's heard"** for a new agent's name
+---
 
-On Linux the browser speaks instead, and those two options are hidden.
+## Uninstalling
 
-## Settings
-
-| Variable | Default | |
-|---|---|---|
-| `PORT` | `3000` | |
-| `BUDDY_HOST` | `127.0.0.1` | `0.0.0.0` opens it to your network (and turns on https) |
-| `BUDDY_TOKEN` | random each start | the access code |
-| `BUDDY_HOME` | `~/buddy-home` | Ada's folder; new projects are made in it |
-| `BUDDY_STT_MODEL` | `fast` | `accurate` for a larger, slower recogniser |
-| `BUDDY_DATA` | the app folder | where calls, logs and the certificate are written |
-| `BUDDY_MODEL_CACHE` | inside `node_modules` | where the speech models are kept |
-| `ANTHROPIC_API_KEY` | | used by the agents instead of a Claude sign-in |
-
-## Development
-
+**Mac:**
 ```sh
-npm test
-node scripts/eval-names.ts --stt=accurate   # how well names are heard (macOS)
-npm run icons                               # remake the app icons from web/icon.svg
+launchctl bootout gui/$(id -u)/com.claudecall
+rm ~/Library/LaunchAgents/com.claudecall.plist
 ```
+Then move ClaudeCall from Applications to the Trash. To remove its data too, delete:
+- `~/Library/Application Support/ClaudeCall`
+- `~/Library/Caches/ClaudeCall`
+
+Your projects in `~/ClaudeCall` stay unless you delete them.
+
+**Ubuntu / Debian:**
+```sh
+sudo apt remove claudecall
+systemctl --user disable claudecall
+rm ~/.config/systemd/user/claudecall.service
+```
+Its data is in `~/.config/claudecall`, `~/.local/share/claudecall` and `~/.cache/claudecall`. Your
+projects are in `~/ClaudeCall`.
+
+---
+
+## If something's not right
+
+- **"Almost there: Claude Code installed / Signed in"** means ClaudeCall can't find Claude Code or
+  you're not signed in. Follow the steps on that screen, then click **Check again**.
+- **It doesn't hear you.** Check that the microphone is allowed:
+  - Mac: System Settings → Privacy & Security → Microphone → ClaudeCall.
+  - Browser: the site's microphone permission.
+- **It hears itself through the speakers.** Turn on **Bluetooth** at the top (meaning you're on
+  headphones). Then you can cut in instantly, and it won't mistake its own voice for yours.
+- **A name keeps being misheard.** Settings → Teach names. Or pick a clearer name; the dialog for a
+  new agent rates how easy a name is to hear.
+- **Logs:**
+  - Mac: `~/Library/Logs/ClaudeCall.log` (or View → Show Log in the app) and
+    `~/Library/Logs/ClaudeCall-launcher.log`.
+  - Linux: `journalctl --user -u claudecall` and `~/.config/claudecall/launcher.log`.
+- **Mac voices vs Linux:** on a Mac, each agent speaks in its own Mac voice from its own side. On
+  Linux the browser's voices are used instead.
