@@ -44,9 +44,12 @@ export class ClaudeSession implements Agent {
   private env: Record<string, string>;
   /** The model Claude Code last said it is running. */
   private running = "";
+  /** How hard it thinks (--effort); set when the process starts. */
+  private effort: string;
   private replacePrompt: boolean;
 
-  constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string; model?: string; extraArgs?: string[]; env?: Record<string, string>; replaceSystemPrompt?: boolean }) {
+  constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string; model?: string; effort?: string; extraArgs?: string[]; env?: Record<string, string>; replaceSystemPrompt?: boolean }) {
+    this.effort = opts.effort ?? "";
     this.cwd = opts.cwd;
     this.extraArgs = opts.extraArgs ?? [];
     this.env = opts.env ?? {};
@@ -72,7 +75,12 @@ export class ClaudeSession implements Agent {
       "-p", "--input-format", "stream-json", "--output-format", "stream-json",
       "--verbose", "--include-partial-messages",
       "--permission-mode", this.permissionMode,
+      // permission prompts come to us over this same channel, as the Agent SDK has them; without
+      // it Claude Code turns some tools off entirely — ExitPlanMode, so plan mode could never
+      // hand a plan over for approval
+      "--permission-prompt-tool", "stdio",
       ...(this.model ? ["--model", this.model] : []),
+      ...(this.effort ? ["--effort", this.effort] : []),
       this.replacePrompt ? "--system-prompt" : "--append-system-prompt", this.systemPrompt,
       ...this.extraArgs,
       ...(this.sessionId ? ["--resume", this.sessionId] : []),

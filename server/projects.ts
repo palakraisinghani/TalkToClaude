@@ -44,9 +44,15 @@ export interface ProjectConfig {
   prompt?: string;
   /** Other spellings the speech recognizer gives this name ("Mylo" for Milo), matched like the name. */
   aliases?: string[];
-  /** The Claude model this agent runs on ("opus", "sonnet", a full id); unset means Claude Code's default. */
+  /** The Claude model this agent runs on ("opus", "sonnet", a full id); unset means the default. */
   model?: string;
+  /** How hard it thinks (Claude Code's --effort): low, medium, high, xhigh, max; unset is its default. */
+  effort?: Effort;
 }
+
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
+export const effortOf = (v: unknown): Effort | undefined => (EFFORTS.includes(v as Effort) ? (v as Effort) : undefined);
 
 interface RawProject {
   name?: string;
@@ -59,6 +65,7 @@ interface RawProject {
   permissionMode?: PermissionMode;
   backgroundPermissionMode?: PermissionMode;
   engagement?: Engagement;
+  effort?: Effort;
   prompt?: string;
   aliases?: string[];
   model?: string;
@@ -103,6 +110,9 @@ export interface SavedProject {
   model?: string;
   /** How it sounds, as the lead (or the agent itself) set it. */
   sound?: Sound;
+  /** Its mode (auto, plan, …) and effort, as last set. */
+  permissionMode?: PermissionMode;
+  effort?: Effort;
 }
 
 /** An agent's voice as it can be changed: which system voice, how fast, how high, how loud, which side. */
@@ -132,6 +142,8 @@ export function withSound(id: Identity, sound?: Sound): Identity {
 /** Settings for the assistant herself, kept beside the roster. */
 export interface SavedCentral {
   model?: string;
+  permissionMode?: PermissionMode;
+  effort?: Effort;
   /** What the lead calls her, when they have renamed her. */
   name?: string;
   /** How the lead's own voice comes out when they say her name, as the recognizer writes it. */
@@ -157,7 +169,7 @@ export async function loadCentral(file: string): Promise<SavedCentral> {
     const parsed = JSON.parse(await readFile(file, "utf8"));
     const c = parsed?.central ?? {};
     const name = typeof c.name === "string" && /^[A-Za-z][A-Za-z']{1,19}$/.test(c.name.trim()) ? c.name.trim() : undefined;
-    return { model: modelOf(c.model), name, aliases: aliasesOf(c.aliases), sound: soundOf(c.sound) };
+    return { model: modelOf(c.model), name, aliases: aliasesOf(c.aliases), sound: soundOf(c.sound), permissionMode: MODES.includes(c.permissionMode) ? c.permissionMode : undefined, effort: effortOf(c.effort) };
   } catch {
     return {};
   }
@@ -238,12 +250,13 @@ export async function loadProjects(root: string, fallbackDir: string, saved: Sav
       // auto everywhere: the safety check lets ordinary work through, and anything it judges risky
       // pauses the agent until you answer — on the line or in the background, through the head
       permissionMode: mode(p.permissionMode, "auto"),
-      backgroundPermissionMode: mode(p.backgroundPermissionMode, "auto"),
+      backgroundPermissionMode: mode(p.backgroundPermissionMode ?? p.permissionMode, "auto"),
       engagement: p.engagement === "delegate" ? "delegate" : "pair",
       resume: resumes.get(i),
       prompt: typeof p.prompt === "string" && p.prompt.trim() ? p.prompt.trim() : undefined,
       aliases: aliasesOf(p.aliases),
       model: modelOf(p.model),
+      effort: effortOf(p.effort),
     };
   });
 }
@@ -277,6 +290,7 @@ export function projectFor(dir: string, index: number, taken: Iterable<string>, 
     prompt: overrides.prompt?.trim() || undefined,
     aliases: aliasesOf(overrides.aliases),
     model: modelOf(overrides.model),
+    effort: effortOf(overrides.effort),
   };
 }
 

@@ -6,7 +6,8 @@ import { esc, renderMarkdown } from "./markdown.js";
 import { route, soundsLike, afterName, LOCAL, calledBy, confusable, spokenName } from "./route.js";
 import { isNoise, MIN_VOICED_MS } from "./noise.js";
 import { StereoEngine } from "./stereo.js";
-import { DEFAULT_MODEL, modelChoices, modelLabel } from "./models.js";
+import { DEFAULT_MODEL, MODELS, modelChoices, modelLabel } from "./models.js";
+import { controlOf, EFFORTS, MODES, modeName, SLASH_HELP, slashOf } from "./controls.js";
 import { drawDiagrams } from "./diagram.js";
 import { rateName, suggestNames } from "./namecheck.js";
 import * as attention from "./attention.js";
@@ -131,6 +132,7 @@ function draw() {
   callEl.style.setProperty("--hue", String(f?.identity?.hue ?? centralIdentity?.hue ?? 18));
   $("onLine").textContent = name;
   $("onLineRole").textContent = !f || f.central ? "your assistant" : tilde(f.dir);
+  drawFloorControls(f ?? project(centralId));
   showFace(orb, focusedId ?? centralId);
   const shown = focusedId ?? centralId;
   if (onCall && drawnFocus && drawnFocus !== shown) showSwitch(drawnFocus);
@@ -303,7 +305,7 @@ function seat(p) {
   el.style.setProperty("--hue", String(p.identity?.hue ?? 0));
   showFace(el.querySelector(".av"), p.id);
   el.querySelector(".nm").textContent = p.name;
-  el.querySelector(".st").textContent = p.id === focusedId ? "talking with you" : waitingItem ? (waitingItem.kind === "question" ? "has a question for you" : "needs your yes") : { working: "working", warm: "free", cold: "not started", parked: "parked", blocked: "waiting" }[p.state] ?? p.state;
+  el.querySelector(".st").textContent = (p.mode && p.mode !== "auto" ? `${modeName(p.mode).toLowerCase()} · ` : "") + (p.id === focusedId ? "talking with you" : waitingItem ? (waitingItem.kind === "question" ? "has a question for you" : "needs your yes") : { working: "working", warm: "free", cold: "not started", parked: "parked", blocked: "waiting" }[p.state] ?? p.state);
   const a = activity.get(p.id);
   const doing = el.querySelector(".doing");
   doing.textContent = a?.text || p.question || p.report || (p.state === "cold" ? "Ready when you are." : "");
@@ -501,6 +503,72 @@ function markFresh(which) {
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showPane(b.dataset.pane);
 
 // ---------- models: each agent its own ----------
+// ---------- Claude Code's controls: mode, effort, new conversation, compact ----------
+// The same from a button, a typed /command, the voice ("plan mode", "Juno, think harder") or
+// Ada's <control> tag; the server answers with what was done, said in the assistant's voice.
+function runControl(pid, what, value = "") {
+  if (!pid) return;
+  if (!send({ type: "control", project: pid, what, value })) feedNote("Not connected.", pid, true);
+}
+function controlDone(m) {
+  feedNote(m.said, m.project, !m.ok);
+  if (onCall) central.say(m.said);
+}
+const fillSelect = (sel, list) => (sel.innerHTML = list.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join(""));
+fillSelect($("ctlMode"), MODES);
+fillSelect($("ctlEffort"), EFFORTS);
+const floorId = () => focusedId ?? centralId;
+$("ctlMode").onchange = () => runControl(floorId(), "mode", $("ctlMode").value);
+$("ctlEffort").onchange = () => runControl(floorId(), "effort", $("ctlEffort").value || "default");
+$("ctlModel").onchange = () => setModel(floorId(), $("ctlModel").value);
+$("ctlMore").onclick = (e) => { e.stopPropagation(); $("ctlMenu").hidden = !$("ctlMenu").hidden; };
+document.addEventListener("click", (e) => { if (!$("floorCtl").contains(e.target)) $("ctlMenu").hidden = true; });
+for (const b of $("ctlMenu").querySelectorAll("button")) b.onclick = () => { $("ctlMenu").hidden = true; menuControl(b.dataset.ctl); };
+function menuControl(what) {
+  const pid = floorId();
+  if (what === "undo") return askUndo(pid === centralId ? null : pid);
+  if (what === "stop") { send({ type: "interrupt", project: pid }); if (onCall) central.say(`Stopped ${nameOf(pid)}.`); return; }
+  if (what === "help") return showSlashHelp("/");
+  if (what === "clear" && !confirm(`Start a new conversation with ${nameOf(pid)}? It forgets this one (its files stay).`)) return;
+  runControl(pid, what);
+}
+function drawFloorControls(f) {
+  if (!f) return;
+  const keep = (sel, v) => { if (document.activeElement !== sel && sel.value !== v) sel.value = v; };
+  keep($("ctlMode"), f.mode ?? "auto");
+  $("ctlMode").dataset.mode = f.mode ?? "auto";
+  keep($("ctlEffort"), f.effort ?? "");
+  syncPicker($("ctlModel"), f.model, f.running);
+}
+fillModels($("ctlModel"));
+
+// typed commands, Claude Code style: a list as you type "/", run on Enter
+function showSlashHelp(prefix = "/", error = "") {
+  const box = $("slashHelp");
+  const rows = SLASH_HELP.filter(([c]) => c.startsWith(prefix.split(" ")[0]) || prefix === "/");
+  box.innerHTML = (error ? `<div class="err">${esc(error)}</div>` : "") + rows.map(([c, d]) => `<div class="row" data-cmd="${esc(c.split(" ")[0])}"><code>${esc(c)}</code><span>${esc(d)}</span></div>`).join("");
+  box.hidden = !rows.length && !error;
+  for (const r of box.querySelectorAll(".row")) r.onclick = () => { $("typeBox").value = r.dataset.cmd + (/[<|]/.test(r.textContent) ? " " : ""); $("typeBox").focus(); showSlashHelp($("typeBox").value); };
+}
+function runSlash(line) {
+  const c = slashOf(line);
+  if (!c) return false;
+  const pid = floorId();
+  $("slashHelp").hidden = true;
+  if (c.error) { showSlashHelp("/", c.error); return true; }
+  if (c.what) runControl(pid, c.what, c.value ?? "");
+  else if (c.action === "model") setModel(pid, MODELS.find((m) => m.alias === c.value || m.id === c.value)?.alias ?? c.value);
+  else if (c.action === "undo") askUndo(pid === centralId ? null : pid);
+  else if (c.action === "stop") { send({ type: "interrupt", project: pid }); feedNote(`Stopped ${nameOf(pid)}.`, pid); }
+  else if (c.action === "btw") send({ type: "btw", project: pid, text: c.value });
+  else if (c.action === "help") showSlashHelp("/");
+  return true;
+}
+$("typeBox").addEventListener("input", () => {
+  const v = $("typeBox").value;
+  if (v.startsWith("/")) showSlashHelp(v); else $("slashHelp").hidden = true;
+});
+
 // full names and ids, with the default's model in brackets (web/models.js)
 function fillModels(sel, current = "") {
   sel.innerHTML = modelChoices(current).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
@@ -540,10 +608,21 @@ function drawModels() {
       row.style.setProperty("--hue", String(p.identity?.hue ?? 18));
       row.innerHTML = `<span class="av mini">${face(p.id)}</span><b>${esc(p.name)}<small class="role"></small></b>`;
       row.appendChild(modelPicker(p.id));
+      const modeSel = Object.assign(document.createElement("select"), { className: "pick mode", title: "Mode" });
+      fillSelect(modeSel, MODES);
+      modeSel.onchange = () => runControl(p.id, "mode", modeSel.value);
+      const effortSel = Object.assign(document.createElement("select"), { className: "pick effort", title: "Effort" });
+      fillSelect(effortSel, EFFORTS);
+      effortSel.onchange = () => runControl(p.id, "effort", effortSel.value || "default");
+      row.append(modeSel, effortSel);
       modelRows.set(p.id, row);
     }
     if (list.children[i] !== row) list.insertBefore(row, list.children[i] ?? null);
-    syncPicker(row.querySelector("select"), p.model, p.running);
+    syncPicker(row.querySelector("select.model"), p.model, p.running);
+    for (const [cls, v] of [["mode", p.mode ?? "auto"], ["effort", p.effort ?? ""]]) {
+      const sel = row.querySelector(`select.${cls}`);
+      if (sel && document.activeElement !== sel && sel.value !== v) sel.value = v;
+    }
     row.querySelector(".role").textContent = [p.central ? "assistant" : "", p.running ? `running ${p.running}` : ""].filter(Boolean).join(" · ");
   });
 }
@@ -1638,6 +1717,7 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "control-done": controlDone(m); break;
     case "reach": showReach(m.lan ?? []); break;
     case "claude-login": claudeLogin(m); break;
     case "tts-capable": ttsCapable = !!m.ok; $("stereoRow").hidden = !ttsCapable; useStereo(); break;
@@ -1987,7 +2067,12 @@ function act(r, text, typed) {
       quietly(r.project);
       voice.clear();
       return send({ type: "handoff", from: focusedId ?? centralId, to: r.project, text: r.text });
-    case "address": return r.text ? ask(r.text, text, { project: r.project }) : focusOn(r.project);
+    case "address": {
+      const c = r.text && controlOf(r.text);
+      if (c) return runControl(r.project, c.what, c.value ?? "");
+      return r.text ? ask(r.text, text, { project: r.project }) : focusOn(r.project);
+    }
+    case "control": return runControl(focusedId ?? centralId, r.what, r.value ?? "");
     case "tell":
       send({ type: "tell", project: r.project, text: r.text });
       for (const i of queue.slice()) if (i.project === r.project && i.kind === "question") removeItem(i);
@@ -2696,6 +2781,7 @@ $("typeForm").onsubmit = (e) => {
   e.preventDefault();
   const v = $("typeBox").value.trim();
   $("typeBox").value = "";
+  if (v.startsWith("/") && runSlash(v)) return;
   if (v) heardText(v, { typed: true });
 };
 try { $("sensitivity").value = localStorage.getItem("sensitivity") || "normal"; } catch {}

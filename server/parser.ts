@@ -10,10 +10,10 @@ export type ParsedEvent =
   /** A control tag such as <open path="…"/> or <delegate to="rex">…</delegate>. */
   | { kind: "action"; name: ActionName; attrs: Record<string, string>; body: string; text: string };
 
-export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close" | "handoff" | "voice" | "call" | "setting" | "remember" | "forget";
+export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close" | "handoff" | "voice" | "call" | "setting" | "remember" | "forget" | "control";
 
 type Section = "none" | "say" | "screen" | "question";
-export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget"];
+export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget", "control"];
 /** How far an action tag may run without closing before it is taken to be ordinary text. */
 const ACTION_MAX = 600;
 // long enough to hold back the start of the longest tag name, "<question" or "<delegate "

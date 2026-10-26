@@ -393,7 +393,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
           const list = await roster();
           // hung up while it was getting ready: make nothing, so nothing is left running
           if (ws.readyState !== ws.OPEN) return;
-          const c = new Call({ projects: list, home: homeDir, systemPrompt, centralPrompt, callsDir, rosterFile, rewriter, send: sendOut, centralModel: saved.model, centralAliases: saved.aliases, centralSound: saved.sound, notebook });
+          const c = new Call({ projects: list, home: homeDir, systemPrompt, centralPrompt, callsDir, rosterFile, rewriter, send: sendOut, centralModel: saved.model, centralAliases: saved.aliases, centralSound: saved.sound, centralMode: saved.permissionMode, centralEffort: saved.effort, notebook });
           call = c;
           c.setMode(mode);
           refiner.warm();
@@ -450,6 +450,12 @@ wss.on("connection", (ws: WebSocket, req: any) => {
           (r) => send({ type: "media", project: m.project, src: m.src, ...r }),
           (e) => send({ type: "media", project: m.project, src: m.src, error: (e as Error).message }),
         );
+        break;
+      }
+      case "control": {
+        // a mode, effort, new conversation or compact, from a button, a typed /command or the voice
+        const r = call?.control(String(m.project), String(m.what ?? ""), String(m.value ?? ""));
+        send({ type: "control-done", project: m.project, ok: !!r?.ok, said: r?.said ?? "There is no call." });
         break;
       }
       case "claude-check":

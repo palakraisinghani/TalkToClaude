@@ -1,4 +1,5 @@
 import { usableAlias } from "./words.js";
+import { controlOf } from "./controls.js";
 // Deciding who a spoken line is for.
 //
 // Only one project is on the line at a time, so everything you say goes either to the central
@@ -282,6 +283,11 @@ export function route(raw, projects, { waiting = null } = {}) {
     const named = projects.find((p) => !p.central && words.some((w) => w.replace(/'s$/, "") === norm(p.name)));
     return { kind: "undo", project: named?.id ?? null };
   }
+
+  // Claude Code's controls for whoever has the floor: "plan mode", "think harder", "new
+  // conversation", "compact" — the whole utterance only (controls.js)
+  const control = controlOf(t);
+  if (control) return { kind: "control", ...control };
 
   // "allow ada" / "allow it" / "allow ada always" — never "go ahead", which resumes the voice
   const permit = /^(allow|grant|approve|permit|let)( it| that| them)?$/.exec(words.slice(0, 2).join(" ")) || /^(allow|grant|approve|permit|let)$/.exec(words[0] ?? "");

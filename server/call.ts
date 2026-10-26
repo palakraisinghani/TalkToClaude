@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { resolveDir } from "./paths.ts";
 import { ago, findSessions } from "./sessions.ts";
-import { aliasesOf, branchOf, clearName, modelOf, projectFor, saveRoster, soundOf, withSound, type ProjectConfig, type Sound } from "./projects.ts";
+import { aliasesOf, branchOf, clearName, effortOf, modelOf, projectFor, saveRoster, soundOf, withSound, type Effort, type PermissionMode, type ProjectConfig, type Sound } from "./projects.ts";
 import type { HearingContext } from "./refine.ts";
 import { CENTRAL_NAME as CENTRAL_DEFAULT } from "./identity.ts";
 import { confusable } from "../web/route.js";
@@ -47,6 +47,11 @@ interface Ask {
   retry?: string;
   /** Why this cannot be taken back, if it cannot: then it needs "confirm", not just "yes". */
   risk?: string;
+  /**
+   * Set for a request ClaudeCall itself makes on Ada's behalf (taking someone off the team), not
+   * one from Claude Code: what to do with the lead's answer.
+   */
+  local?: (allow: boolean) => void;
 }
 
 /** Everything the server keeps for one agent — a project's, or the central one — for one call. */
@@ -95,8 +100,14 @@ class Project {
   checkpoints: Promise<Checkpoint | null>[] = [];
   /** Side questions asked mid-task and their answers, so each one has the ones before it. */
   btwHistory: { question: string; response: string }[] = [];
-  /** Control tags the central agent wrote this turn, carried out once the turn ends. */
-  actions: Action[] = [];
+  /**
+   * Control tags that move the floor or the call (switch, call), kept by turn and carried out
+   * when that turn ends — interrupted or not, and whatever the lead says next. Every other tag is
+   * carried out the moment it is written (see parsed()).
+   */
+  deferred = new Map<number, Action[]>();
+  /** Tags being carried out, one after another, in the order they were written. */
+  acting: Promise<unknown> = Promise.resolve();
   branch = "";
   turnsDone = 0;
   sessionId = "";
@@ -108,6 +119,10 @@ class Project {
   told: { session: unknown; header: string; team: Map<string, string>; turns: number } | null = null;
   /** The exact model Claude Code reports this agent running, once it has said. */
   running = "";
+  /** The mode to return to once a plan is approved. */
+  afterPlan: PermissionMode = "auto";
+  /** A setting changed mid-turn that needs a fresh process: restart when the turn ends. */
+  restartAfterTurn = false;
 
   constructor(config: ProjectConfig, central = false) {
     this.config = config;
@@ -141,6 +156,9 @@ export interface CallOptions {
   centralAliases?: string[];
   /** How she sounds, as last set. */
   centralSound?: Sound;
+  /** Her mode and effort, as last set. */
+  centralMode?: PermissionMode;
+  centralEffort?: Effort;
   /** What Ada keeps between calls; a throwaway one when not given. */
   notebook?: Notebook;
 }
@@ -190,7 +208,9 @@ export class Call {
       engagement: "pair",
       aliases: [...builtinAliases(centralName()), ...(opts.centralAliases ?? [])],
       model: opts.centralModel,
+      effort: opts.centralEffort,
     }, true);
+    if (opts.centralMode) this.central.config.permissionMode = this.central.config.backgroundPermissionMode = opts.centralMode;
     this.projects.set(CENTRAL_ID, this.central);
     this.learnedCentral = opts.centralAliases ?? [];
     for (const c of opts.projects) {
@@ -257,8 +277,8 @@ export class Call {
       // per-turn state belongs to the running turn until it ends; a queued message must not wipe it
       p.said = [];
       p.answer = [];
-      p.actions = [];
       p.lastSpokeAt = 0;
+      // Ada's tags are not cleared here: talking over her must never lose what she set in motion
     }
     p.pendingQuestion = null;
     p.questionId = "";
@@ -361,6 +381,21 @@ export class Call {
   }
 
   /**
+   * Something Ada asked for that cannot be taken back, put to the lead first: it waits on her card
+   * like any permission and needs "confirm", not a bare "yes". `then` gets the answer.
+   */
+  private confirmFirst(phrase: string, detail: string, then: (allow: boolean) => void): void {
+    const p = this.central;
+    const requestId = `confirm-${Date.now().toString(36)}`;
+    const risk = "it cannot be undone";
+    p.asks.push({ requestId, tool: "ClaudeCall", phrase, detail, reason: detail, input: {}, suggestions: [], at: Date.now(), risk, local: then });
+    const onLine = this.focused === CENTRAL_ID;
+    this.emit(p, { type: "permission", project: CENTRAL_ID, turn: p.turn, tool: "ClaudeCall", requestId, phrase, detail, input: {}, text: `${p.config.name} wants to ${phrase}.` });
+    this.queue({ ...notification("permission", p.config.name, CENTRAL_ID, { phrase, risk, message: detail }), requestId, onLine: onLine || undefined, risk } as any);
+    this.publish();
+  }
+
+  /**
    * Say no. The agent is told, and carries on without it or stops and says what is left. A
    * message replaces the stock refusal: "keep planning, and use Postgres" on a plan, say.
    */
@@ -370,12 +405,15 @@ export class Call {
 
   private settle(id: string, allow: boolean, always: boolean, requestId?: string, { answers, message = "" }: { answers?: Record<string, string>; message?: string } = {}): boolean {
     const p = this.projects.get(id);
-    if (!p?.session) return false;
+    if (!p) return false;
     const ask = requestId ? p.asks.find((a) => a.requestId === requestId) : p.asks[0];
-    if (!ask) return false;
+    if (!ask || (!ask.local && !p.session)) return false;
     p.asks = p.asks.filter((a) => a !== ask);
     let ok = true;
-    if (ask.retry) {
+    if (ask.local) {
+      // ClaudeCall's own request: carried out (or not) here, nothing goes to Claude Code
+      try { ask.local(allow); } catch (e) { console.error(e); }
+    } else if (ask.retry) {
       // refused earlier and already worked around: allow exactly this, then have it tried again
       if (allow) {
         p.session.allow(ask.retry);
@@ -384,7 +422,13 @@ export class Call {
     } else {
       // picked answers to the agent's own questions travel back inside the tool's input
       const input = answers && ask.tool === "AskUserQuestion" ? { ...(ask.input as object), answers } : ask.input;
-      ok = p.session.answer(ask.requestId, allow, { always, suggestions: ask.suggestions, input, message });
+      ok = p.session!.answer(ask.requestId, allow, { always, suggestions: ask.suggestions, input, message });
+      // a plan approved: out of plan mode, back to how it worked before, so it can start
+      if (allow && ask.tool === "ExitPlanMode") {
+        p.config.permissionMode = p.config.backgroundPermissionMode = p.afterPlan;
+        p.session!.setPermissionMode(p.afterPlan);
+        this.remember();
+      }
     }
     if (p.state === "blocked" && !p.asks.length) p.state = "working";
     this.emit(p, { type: "answered", project: id, requestId: ask.requestId, allow, always: always || undefined, phrase: ask.phrase });
@@ -552,6 +596,73 @@ export class Call {
   }
 
   /**
+   * The controls Claude Code has, for any agent, by voice, button, typed slash command or Ada's
+   * <control> tag. Returns what was done, in a few words, or a problem.
+   *   mode     auto, plan, acceptEdits, manual (ask every time): changed in place, nothing lost
+   *   effort   low … max: the session restarts on its next message, picking up the conversation
+   *   clear    a new conversation: the next message starts a fresh session in the same folder
+   *   compact  Claude Code summarises the conversation so far, to make room
+   */
+  control(id: string, what: string, value = ""): { ok: boolean; said: string } {
+    const p = this.projects.get(id);
+    if (!p) return { ok: false, said: "There is no one by that name on the call." };
+    const name = p.config.name;
+    switch (what) {
+      case "mode": {
+        const mode = MODE_WORDS[value.toLowerCase()];
+        if (!mode) return { ok: false, said: `"${value}" is not a mode: auto, plan, accept edits, or ask every time.` };
+        p.config.permissionMode = p.config.backgroundPermissionMode = mode;
+        if (mode !== "plan") p.afterPlan = mode;
+        p.session?.setPermissionMode(mode);
+        this.remember();
+        this.publish();
+        return { ok: true, said: `${name} is in ${MODE_NAMES[mode]}.` };
+      }
+      case "effort": {
+        const effort = value === "default" || value === "" ? undefined : effortOf(value.toLowerCase());
+        if (value && value !== "default" && !effort) return { ok: false, said: `"${value}" is not an effort level: low, medium, high, xhigh or max.` };
+        p.config.effort = effort;
+        this.restartWhenFree(p);
+        this.remember();
+        this.publish();
+        return { ok: true, said: `${name} will think at ${effort ?? "its usual"} effort from its next message.` };
+      }
+      case "clear": {
+        if (p.session?.isBusy()) return { ok: false, said: `${name} is still working. Stop it first, then start a new conversation.` };
+        p.session?.close();
+        p.session = null;
+        p.sessionId = "";
+        p.config.resume = undefined;
+        p.told = null;
+        p.report = "";
+        p.btwHistory = [];
+        if (p.state !== "parked") p.state = "cold";
+        this.remember();
+        this.publish();
+        return { ok: true, said: `${name} starts a new conversation with your next message.` };
+      }
+      case "compact": {
+        if (!p.session) return { ok: false, said: `${name} has no conversation to compact yet.` };
+        if (p.session.isBusy()) return { ok: false, said: `${name} is working. It can compact once it is done.` };
+        // Claude Code's own /compact, sent as the message itself
+        p.turn = p.session.send("/compact", { interrupt: false });
+        p.state = "working";
+        this.publish();
+        return { ok: true, said: `Compacting ${name}'s conversation.` };
+      }
+    }
+    return { ok: false, said: `"${what}" is not a control.` };
+  }
+
+  /** A setting only read when the session starts: restart it as soon as it has nothing running. */
+  private restartWhenFree(p: Project): void {
+    if (!p.session) return;
+    if (p.session.isBusy()) { p.restartAfterTurn = true; return; }
+    p.session.close();
+    p.session = null; // ensure() resumes the same conversation with the new setting
+  }
+
+  /**
    * What undoing an agent's last turn would change: the files that differ from the snapshot taken
    * before it. Empty when nothing has changed, null when there is no snapshot to go back to.
    */
@@ -705,6 +816,14 @@ export class Call {
         if (!attrs.name) return "The setting tag needs a name.";
         this.opts.send({ type: "app-setting", name: attrs.name, value: attrs.value ?? "" });
         return null;
+      case "control": {
+        // a mode, effort level, new conversation or compact, for anyone on the team or herself
+        const p = attrs.to ? this.find(attrs.to) : this.central;
+        if (!p) return `There is no one called "${attrs.to}".`;
+        const r = this.control(p.config.id, attrs.do ?? "", attrs.value ?? "");
+        this.opts.send({ type: "control-done", project: p.config.id, ok: r.ok, said: r.said });
+        return r.ok ? null : r.said;
+      }
       case "remember":
         // something the lead wants kept beyond this call: a preference, a decision
         if (!body.trim()) return "The remember tag had nothing in it.";
@@ -735,9 +854,18 @@ export class Call {
         return null;
       }
       case "close": {
+        // taking someone off the team ends their conversation: the lead confirms it first
         const p = this.find(attrs.to);
         if (!p || p.central) return `There is no project called "${attrs.to}" to close.`;
-        this.remove(p.config.id);
+        const name = p.config.name, pid = p.config.id;
+        this.confirmFirst(`take ${name} off the team`, `${name} leaves the call and its conversation ends. Its folder and files stay where they are.`, (allow) => {
+          if (allow && this.projects.has(pid)) {
+            this.remove(pid);
+            this.ask(CENTRAL_ID, `[the lead confirmed: ${name} is off the team]`, null, { keepFocus: true, queue: true });
+          } else if (!allow) {
+            this.ask(CENTRAL_ID, `[the lead chose to keep ${name} on the team]`, null, { keepFocus: true, queue: true });
+          }
+        });
         return null;
       }
       case "new": {
@@ -907,6 +1035,8 @@ export class Call {
       name: p.config.name,
       model: p.config.model ?? "",
       running: p.running || undefined,
+      mode: p.config.permissionMode,
+      effort: p.config.effort ?? "",
       aliases: p.config.aliases ?? [],
       dir: p.config.dir,
       central: p.central || undefined,
@@ -943,9 +1073,9 @@ export class Call {
     if (!this.opts.rosterFile) return;
     const list = this.order.map((id) => {
       const p = this.projects.get(id)!;
-      return { name: p.config.name, dir: p.config.dir, sessionId: p.sessionId || undefined, prompt: p.config.prompt, aliases: p.config.aliases, model: p.config.model, sound: p.config.sound };
+      return { name: p.config.name, dir: p.config.dir, sessionId: p.sessionId || undefined, prompt: p.config.prompt, aliases: p.config.aliases, model: p.config.model, sound: p.config.sound, permissionMode: p.config.permissionMode === "auto" ? undefined : p.config.permissionMode, effort: p.config.effort };
     });
-    saveRoster(this.opts.rosterFile, list, { model: this.central.config.model, name: this.central.config.name === CENTRAL_DEFAULT ? undefined : this.central.config.name, aliases: this.learnedCentral, sound: this.central.config.sound }).catch((e) => console.error("Could not save the roster:", e.message));
+    saveRoster(this.opts.rosterFile, list, { model: this.central.config.model, permissionMode: this.central.config.permissionMode === "auto" ? undefined : this.central.config.permissionMode, effort: this.central.config.effort, name: this.central.config.name === CENTRAL_DEFAULT ? undefined : this.central.config.name, aliases: this.learnedCentral, sound: this.central.config.sound }).catch((e) => console.error("Could not save the roster:", e.message));
   }
 
   /** The per-project half of the voice prompt: who it is, and that it is not alone. */
@@ -999,6 +1129,7 @@ export class Call {
       permissionMode: this.focused === id ? p.config.permissionMode : p.config.backgroundPermissionMode,
       resume: p.sessionId || undefined,
       model: p.config.model ?? DEFAULT_MODEL,
+      effort: p.config.effort,
     });
     session.on((turn, ev) => this.onEvent(p, turn, ev));
     session.start();
@@ -1037,7 +1168,14 @@ export class Call {
       else if (e.kind === "question") p.pendingQuestion = e.text;
       else if (e.kind === "action") {
         // only the central agent runs the call; from a project, a tag like this is just text
-        if (p.central) { p.actions.push(e); this.emit(p, { type: "action", project: id, turn, name: e.name, attrs: e.attrs, body: e.body }); }
+        if (p.central) {
+          this.emit(p, { type: "action", project: id, turn, name: e.name, attrs: e.attrs, body: e.body });
+          // Moving the floor or the call waits until she has said her piece. Everything else —
+          // a new project, work handed out, a setting — starts now, while she is still talking,
+          // so being interrupted can never undo it.
+          if (FLOOR_ACTIONS.has(e.name)) p.deferred.set(turn, [...(p.deferred.get(turn) ?? []), e]);
+          else p.acting = p.acting.then(() => this.act([e])).catch((err) => console.error(err));
+        }
         else if (e.name === "voice") {
           // an agent may change how it sounds — its own voice only, never anyone else's
           this.setSound(id, voicePatch(e.attrs, p.config.identity));
@@ -1159,12 +1297,11 @@ export class Call {
         if (!ev.interrupted) await this.parsed(p, turn, p.parserFor(turn).end());
         p.parsers.delete(turn);
         if (p.handoff) {
+          // asked for, so done: an interruption does not take it back
           const h = p.handoff;
           p.handoff = null;
-          if (!ev.interrupted) {
-            const problem = this.handoff(id, h.to, h.note);
-            if (problem) this.ask(id, `[your handoff did not go through: ${problem}]`, null, { keepFocus: true, queue: true });
-          }
+          const problem = this.handoff(id, h.to, h.note);
+          if (problem) this.ask(id, `[your handoff did not go through: ${problem}]`, null, { keepFocus: true, queue: true });
         }
         p.turnsDone++;
         // the one-line report is the opening of its final answer — the verdict — not its last line
@@ -1174,7 +1311,8 @@ export class Call {
         if (!onLine && !ev.interrupted && !p.pendingQuestion && !p.central && /\?$/.test(p.report) && p.said.length) p.pendingQuestion = p.report;
         if (onLine) p.pendingQuestion = null; // asked out loud, to someone listening
         // a turn that ended took its paused requests with it; refusals wait for the lead's answer
-        p.asks = p.asks.filter((a) => a.retry);
+        // (ClaudeCall's own confirmations are not tied to a turn either, and stay until answered)
+        p.asks = p.asks.filter((a) => a.retry || a.local);
         if (p.pendingQuestion && !p.questionId) { p.questionId = `q-${id}-${turn}`; p.questionAt = Date.now(); }
         if (!p.pendingQuestion) p.questionId = "";
         p.state = p.pendingQuestion ? "blocked" : p.session?.isBusy() ? "working" : "warm";
@@ -1187,16 +1325,28 @@ export class Call {
           else if (!p.session?.isBusy()) this.queue(notification("finished", p.config.name, id, { said: [p.report], full: p.said.join(" ") }));
         }
         this.publish();
-        const actions = p.actions;
-        p.actions = [];
+        if (p.restartAfterTurn && !p.session?.isBusy()) { p.restartAfterTurn = false; this.restartWhenFree(p); }
+        const deferred = p.deferred.get(turn) ?? [];
+        p.deferred.delete(turn);
         p.said = []; // the next turn, queued or not, starts its own report
         p.answer = [];
-        if (p.central && !ev.interrupted && actions.length) await this.act(actions);
+        // the floor moves once she is done, even if she was cut off: it was asked for
+        if (p.central && deferred.length) await p.acting.then(() => this.act(deferred));
         break;
       }
     }
   }
 }
+
+/** How the lead says a mode, and what it is called back to them. */
+const MODE_WORDS: Record<string, PermissionMode> = {
+  auto: "auto", plan: "plan", planning: "plan", acceptedits: "acceptEdits", "accept edits": "acceptEdits", edits: "acceptEdits",
+  manual: "manual", ask: "manual", "ask every time": "manual", default: "manual",
+};
+const MODE_NAMES: Record<string, string> = { auto: "auto mode", plan: "plan mode", acceptEdits: "accept-edits mode", manual: "ask-every-time mode", default: "ask-every-time mode", dontAsk: "don't-ask mode", bypassPermissions: "bypass mode" };
+
+/** Ada's tags that move the floor or the call: carried out when her turn ends, not mid-sentence. */
+const FLOOR_ACTIONS = new Set(["switch", "call"]);
 
 /** Picture paths named in a tool's input or output, kept newest first: a few, not a history. */
 function rememberImages(p: Project, text: string): void {

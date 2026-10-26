@@ -628,6 +628,23 @@
   .setupcard .row2 .wbtn { flex: 1; min-width: 180px; }
   #setupMsg { color: var(--think); font-size: 13px; min-height: 1.2em; margin: 0; }
   .reach { display: grid; gap: 6px; margin: 6px 0 0 36px; }
+  /* the floor's controls: mode, model, effort, and the rest behind ⋯ */
+  .floorctl { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .floorctl select.pick { font-size: 12px; padding: 3px 8px; border-radius: 999px; max-width: 220px; }
+  .floorctl select#ctlMode[data-mode="plan"] { border-color: var(--think); color: var(--think); font-weight: 600; }
+  .floorctl .chipbtn { padding: 2px 10px; }
+  .ctlmenu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; min-width: 200px; padding: 6px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+  .ctlmenu[hidden] { display: none; }
+  .ctlmenu button { text-align: left; border: none; background: none; padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+  .ctlmenu button:hover { background: var(--bg); }
+  .slashhelp { width: 100%; box-sizing: border-box; display: grid; gap: 2px; padding: 8px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-size: 12.5px; }
+  .slashhelp[hidden] { display: none; }
+  .slashhelp .row { display: flex; gap: 10px; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .slashhelp .row:hover { background: var(--bg); }
+  .slashhelp code { font-family: var(--mono); color: var(--accent-ink); white-space: nowrap; }
+  .slashhelp span { color: var(--muted); }
+  .slashhelp .err { color: var(--think); padding: 3px 6px; }
+  .modelrow select.pick { font-size: 12px; padding: 3px 6px; max-width: 120px; }
   .reach[hidden] { display: none; }
 
   /* narrower screens: canvas and behind the scenes share one column, as tabs */
@@ -894,6 +911,20 @@
     <div class="stage" id="call" data-state="asleep">
       <div class="floor">talking with <span id="fromTag"></span></div>
       <div class="who" id="onLineWho"><span class="nm" id="onLine">Ada</span><span class="rl" id="onLineRole"></span></div>
+      <!-- Claude Code's controls for whoever has the floor: there in audio-only too -->
+      <div class="floorctl" id="floorCtl">
+        <select id="ctlMode" class="pick" title="Mode: how it works and when it asks"></select>
+        <select id="ctlModel" class="pick model" title="The Claude model it runs on"></select>
+        <select id="ctlEffort" class="pick" title="How hard it thinks"></select>
+        <button type="button" class="chipbtn" id="ctlMore" title="More controls" aria-haspopup="true">⋯</button>
+        <div class="ctlmenu" id="ctlMenu" hidden>
+          <button type="button" data-ctl="clear">New conversation</button>
+          <button type="button" data-ctl="compact">Compact conversation</button>
+          <button type="button" data-ctl="undo">Undo last change</button>
+          <button type="button" data-ctl="stop">Stop what it's doing</button>
+          <button type="button" data-ctl="help">Typed commands</button>
+        </div>
+      </div>
       <div class="orb-wrap"><div class="halo"></div><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="ring r4"></div><div class="nring"></div><div class="orb" id="orb">A</div><button class="nbadge" id="nbadge" title="Go through who is waiting"></button><div class="guest" id="guest" title=""></div></div>
       <button class="backbtn" id="backBtn" data-icon="back" hidden></button>
       <div id="stateLabel">asleep</div>
@@ -914,6 +945,7 @@
       <div class="pills">
         <button class="chipbtn" id="holdBtn" title="Chime only: Ada will not tell you someone is waiting until you say “I'm free”" disabled>Hold calls</button>
       </div>
+      <div class="slashhelp" id="slashHelp" hidden></div>
       <form id="typeForm" autocomplete="off"><span data-icon="keyboard"></span><input id="typeBox" placeholder="Type instead of speaking…" disabled><button class="iconbtn" type="submit" data-icon="send" title="Send"></button></form>
       <div class="sub"><b style="color:var(--ink)">You</b> lead the call · <span id="timer">not connected</span></div>
     </div>
