@@ -1,11 +1,14 @@
 #!/bin/sh
-# What opening ClaudeCall.app does (scripts/build-mac.sh puts it in the app as Contents/MacOS/ClaudeCall).
+# What opening ClaudeCall.app does first (scripts/build-mac.sh puts it in the app as
+# Contents/Resources/launcher.sh; the app's window, mac/main.swift, runs it and then shows ClaudeCall).
+# Exits 0 when ClaudeCall is up, 10 when the app should quit (moved to Applications, or cancelled),
+# anything else when it could not start.
 #
 # Makes sure ClaudeCall is running as a background service from this copy of the app — installing
 # it the first time, moving it over after an update or a move — and opens it in the browser.
 # The service keeps running after this exits, as it does when installed from a terminal.
 
-RES=$(cd "$(dirname "$0")/../Resources" && pwd)
+RES=$(cd "$(dirname "$0")" && pwd)
 APPDIR="$RES/app"
 LOG="$HOME/Library/Logs/ClaudeCall-launcher.log"
 SUPPORT="$HOME/Library/Application Support/ClaudeCall"
@@ -43,7 +46,7 @@ case "$BUNDLE" in
         alert "ClaudeCall could not be copied to $(dirname "$DEST_APP"). Drag it there from the disk image, then open it from there."
       fi
     fi
-    exit 0
+    exit 10
     ;;
 esac
 
@@ -60,7 +63,7 @@ export BUDDY_DATA="$SUPPORT"
 export BUDDY_MODEL_CACHE="$HOME/Library/Caches/ClaudeCall/models"
 
 # installed from this copy, at this version? if not, (re)install: settings and the code are kept
-VERSION=$(cat "$RES/version")
+VERSION=$(cat "$RES/build" 2>/dev/null || cat "$RES/version")
 if ! grep -q "$CLAUDECALL_NODE" "$PLIST" 2>/dev/null || ! grep -qF "$CONF/env" "$PLIST" 2>/dev/null || [ "$(cat "$CONF/app-version" 2>/dev/null)" != "$VERSION" ]; then
   echo "installing the service from $RES"
   if ! sh "$APPDIR/scripts/service.sh" install; then
@@ -90,5 +93,6 @@ fi
 
 # this is the owner's own Mac: the code goes along, so there is nothing to type here. It travels
 # after the #, which never leaves the browser, and the page takes it out of the address at once
-[ -n "${CLAUDECALL_NO_OPEN:-}" ] && exit 0  # for testing the app without a browser
+# the app's window opens it itself; run on its own (or for testing), the browser does
+[ -n "${CLAUDECALL_WINDOW:-}${CLAUDECALL_NO_OPEN:-}" ] && exit 0
 open "$SCHEME://localhost:$PORT/#code=$(get BUDDY_TOKEN)"

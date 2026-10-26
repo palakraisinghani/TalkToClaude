@@ -6,6 +6,7 @@ import { esc, renderMarkdown } from "./markdown.js";
 import { route, soundsLike, afterName, LOCAL, calledBy, confusable, spokenName } from "./route.js";
 import { isNoise, MIN_VOICED_MS } from "./noise.js";
 import { StereoEngine } from "./stereo.js";
+import { DEFAULT_MODEL, modelChoices, modelLabel } from "./models.js";
 import { drawDiagrams } from "./diagram.js";
 import { rateName, suggestNames } from "./namecheck.js";
 import * as attention from "./attention.js";
@@ -201,7 +202,7 @@ function drawHead() {
   el.style.setProperty("--hue", String(c.identity?.hue ?? 18));
   el.classList.toggle("on", focusedId === centralId);
   showFace(el.querySelector(".av"), c.id);
-  syncPicker(el.querySelector("select.model"), c.model);
+  syncPicker(el.querySelector("select.model"), c.model, c.running);
   el.querySelector(".nm").textContent = c.name;
   const n = queue.length;
   el.querySelector(".sub").textContent = !onCall ? "Start the call to begin."
@@ -315,7 +316,7 @@ function seat(p) {
   // what it has cost and how long it has worked this call, as the CLI reports it
   const meter = [p.busyMs ? `${Math.max(1, Math.round(p.busyMs / 60000))}m work` : "", p.costUsd ? `$${p.costUsd < 0.1 ? p.costUsd.toFixed(3) : p.costUsd.toFixed(2)}` : ""].filter(Boolean).join(", ");
   el.querySelector(".meta").textContent = [tilde(p.dir), voiceConfident.has(p.id) ? "knows your voice" : voiceCounts[p.id] ? "partly learned" : "", p.turns ? `${p.turns} turn${p.turns > 1 ? "s" : ""}` : "", meter].filter(Boolean).join(" · ");
-  syncPicker(el.querySelector("select.model"), p.model);
+  syncPicker(el.querySelector("select.model"), p.model, p.running);
   el.title = `${p.name}: ${p.dir}${p.sessionId ? ` · session ${p.sessionId.slice(0, 8)}` : ""}`;
   return el;
 }
@@ -500,11 +501,9 @@ function markFresh(which) {
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => showPane(b.dataset.pane);
 
 // ---------- models: each agent its own ----------
-const MODELS = [["", "Default"], ["fable", "Fable"], ["opus", "Opus"], ["sonnet", "Sonnet"], ["haiku", "Haiku"]];
-const modelName = (m) => MODELS.find(([v]) => v === m)?.[1] ?? m;
+// full names and ids, with the default's model in brackets (web/models.js)
 function fillModels(sel, current = "") {
-  const opts = current && !MODELS.some(([v]) => v === current) ? [...MODELS, [current, current]] : MODELS;
-  sel.innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
+  sel.innerHTML = modelChoices(current).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join("");
   sel.value = current;
 }
 function modelPicker(pid) {
@@ -516,14 +515,17 @@ function modelPicker(pid) {
   sel.onchange = () => setModel(pid, sel.value);
   return sel;
 }
-function syncPicker(sel, model = "") {
-  if (!sel || document.activeElement === sel) return;
+function syncPicker(sel, model = "", running = "") {
+  if (!sel) return;
+  // what Claude Code says it is really running, which a provider may name more precisely
+  sel.title = running ? `Running ${running}` : `Will run ${modelLabel(model || DEFAULT_MODEL)}`;
+  if (document.activeElement === sel) return;
   if (![...sel.options].some((o) => o.value === model)) fillModels(sel, model);
   if (sel.value !== model) sel.value = model;
 }
 function setModel(pid, model) {
   send({ type: "set-model", project: pid, model });
-  feedNote(`${nameOf(pid)} will use ${model ? modelName(model) : "the default model"} from its next turn.`, pid);
+  feedNote(`${nameOf(pid)} will use ${modelLabel(model || DEFAULT_MODEL)} from its next turn.`, pid);
 }
 const modelRows = new Map();
 function drawModels() {
@@ -536,12 +538,13 @@ function drawModels() {
     if (!row) {
       row = Object.assign(document.createElement("div"), { className: "modelrow" });
       row.style.setProperty("--hue", String(p.identity?.hue ?? 18));
-      row.innerHTML = `<span class="av mini">${face(p.id)}</span><b>${esc(p.name)}<small>${p.central ? "assistant" : ""}</small></b>`;
+      row.innerHTML = `<span class="av mini">${face(p.id)}</span><b>${esc(p.name)}<small class="role"></small></b>`;
       row.appendChild(modelPicker(p.id));
       modelRows.set(p.id, row);
     }
     if (list.children[i] !== row) list.insertBefore(row, list.children[i] ?? null);
-    syncPicker(row.querySelector("select"), p.model);
+    syncPicker(row.querySelector("select"), p.model, p.running);
+    row.querySelector(".role").textContent = [p.central ? "assistant" : "", p.running ? `running ${p.running}` : ""].filter(Boolean).join(" · ");
   });
 }
 

@@ -7,6 +7,7 @@ export type AgentEvent =
   /** The agent is paused on an action that needs a person's yes or no. */
   | { kind: "ask"; requestId: string; tool: string; input: any; reason: string; title: string; suggestions: unknown[] }
   | { kind: "compacted" }
+  | { kind: "model"; model: string }
   | { kind: "done"; sessionId: string; interrupted: boolean; costUsd?: number; ms?: number }
   /** A queued message that was let go before it ever ran. */
   | { kind: "dropped" }

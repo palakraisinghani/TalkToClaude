@@ -38,9 +38,13 @@ Each version is on the GitHub **Releases** page, built by GitHub Actions (`.gith
 Intel Macs aren't supported: the speech recogniser's runtime no longer ships for them. They can
 still use ClaudeCall from a browser, served by another computer.
 
-**Mac:** open the `.dmg` and drag ClaudeCall to Applications. Opening the app does two things:
+**Mac:** open the `.dmg` and drag ClaudeCall to Applications. If you open it straight from the
+disk image, it offers to copy itself there. Opening the app does two things:
 - starts ClaudeCall in the background, and keeps it running after login
-- opens it in your browser, already signed in with the access code, and ready to install as an app
+- shows it in a window of its own, already signed in, with the microphone allowed
+
+Closing the window doesn't stop your team: the agents keep working in the background.
+View → Open in Browser shows the same call in a browser tab.
 
 It starts clean: just Ada, no team yet. The projects she sets up go in `~/ClaudeCall`. Its
 settings and data go in `~/Library/Application Support/ClaudeCall`, and the speech model in
@@ -51,7 +55,8 @@ right-click it and choose **Open**, or allow it in System Settings → Privacy &
 **Linux:** unpack the `.tar.xz` (`tar -xf`) and run `./install.sh` (add `--lan` for phones on your Wi-Fi). It:
 - installs into `~/.local/share/claudecall`, with projects in `~/ClaudeCall` and port 3747
 - sets ClaudeCall up as a systemd user service
-- adds it to your app menu and adds a `claudecall` command
+- adds it to your app menu and adds a `claudecall` command; it opens in a window of its own when
+  Chrome, Chromium, Edge or Brave is installed, otherwise in your browser
 
 To update, run the newer download's `install.sh`; your settings and projects are kept.
 

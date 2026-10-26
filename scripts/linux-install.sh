@@ -38,6 +38,7 @@ Exec=$HOME/.local/bin/claudecall
 Icon=claudecall
 Terminal=false
 Categories=Development;
+StartupWMClass=ClaudeCall
 DESKTOP
 command -v update-desktop-database >/dev/null && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 

@@ -3,6 +3,7 @@ import { builtinAliases, CENTRAL, CENTRAL_ID, centralName, setCentralName } from
 import { clean } from "./cleaner.ts";
 import { callHeader, cutIn, type CallContext } from "./context.ts";
 import { Notebook, teamChanges } from "./notebook.ts";
+import { DEFAULT_MODEL } from "../web/models.js";
 import { narrate, toolDetail, toolLabel } from "./narration.ts";
 import { describeAction, notification, riskOf, ruleFor, summarise, type Notification } from "./notify.ts";
 import { ReplyParser, type ParsedEvent } from "./parser.ts";
@@ -105,6 +106,8 @@ class Project {
    * Code summarises it, and then it is all told again.
    */
   told: { session: unknown; header: string; team: Map<string, string>; turns: number } | null = null;
+  /** The exact model Claude Code reports this agent running, once it has said. */
+  running = "";
 
   constructor(config: ProjectConfig, central = false) {
     this.config = config;
@@ -536,13 +539,13 @@ export class Call {
 
   /**
    * Put an agent on a different model, from its next turn, without losing its conversation. An
-   * empty or unknown name goes back to Claude Code's default. Remembered for the next call.
+   * empty or unknown name goes back to the default (DEFAULT_MODEL). Remembered for the next call.
    */
   setModel(id: string, model: string): boolean {
     const p = this.projects.get(id);
     if (!p) return false;
     p.config.model = modelOf(model);
-    p.session?.setModel(p.config.model ?? "");
+    p.session?.setModel(p.config.model ?? DEFAULT_MODEL);
     this.remember();
     this.publish();
     return true;
@@ -903,6 +906,7 @@ export class Call {
       id,
       name: p.config.name,
       model: p.config.model ?? "",
+      running: p.running || undefined,
       aliases: p.config.aliases ?? [],
       dir: p.config.dir,
       central: p.central || undefined,
@@ -994,7 +998,7 @@ export class Call {
       systemPrompt: `${this.preamble(p)}\n\n${this.opts.systemPrompt}`,
       permissionMode: this.focused === id ? p.config.permissionMode : p.config.backgroundPermissionMode,
       resume: p.sessionId || undefined,
-      model: p.config.model,
+      model: p.config.model ?? DEFAULT_MODEL,
     });
     session.on((turn, ev) => this.onEvent(p, turn, ev));
     session.start();
@@ -1130,6 +1134,10 @@ export class Call {
       case "error":
         this.emit(p, { type: "error", project: id, turn, text: `${p.config.name} hit a problem: ${ev.message}` });
         if (!onLine) this.queue(notification("failed", p.config.name, id, { message: ev.message, said: p.said }));
+        break;
+      case "model":
+        p.running = ev.model;
+        this.publish();
         break;
       case "compacted":
         // its conversation was summarised: tell it where things stand again, in full, next time

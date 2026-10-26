@@ -20,6 +20,12 @@ function head(kind, face, rim) {
   }
 }
 
+/** Eyes shut mid-blink: a short line where each eye is, never an empty face. */
+function shut(kind) {
+  const y = kind === "happy" ? 33 : kind === "visor" ? 33.5 : 33;
+  return `<path d="M22.5 ${y} h6 M35.5 ${y} h6" fill="none" stroke="${INK}" stroke-width="2.2" stroke-linecap="round"/>`;
+}
+
 function eyes(kind) {
   switch (kind) {
     case "happy":
@@ -83,7 +89,8 @@ export function avatar(name, hue = 18, { central = false } = {}) {
   return `<svg class="avatar" viewBox="0 0 64 64" aria-hidden="true">`
     + (extra === "beanie" ? "" : accessory(extra === "headset" ? "" : extra, hue))
     + head(shape, face, rim)
-    + `<g class="eyes" style="animation-delay:-${(h % 50) / 10}s">${eyes(eye)}</g>`
+    // open and shut both drawn; a blink swaps them for a moment (index.html, .avatar .eyes)
+    + `<g class="eyes" style="--blink:-${(h % 50) / 10}s"><g class="open">${eyes(eye)}</g><g class="shut">${shut(eye)}</g></g>`
     + `<circle cx="20.5" cy="39.5" r="2.6" fill="hsl(350 85% 72% / .55)"/><circle cx="43.5" cy="39.5" r="2.6" fill="hsl(350 85% 72% / .55)"/>`
     + mouth(central ? "smile" : shape === "cat" ? "cat" : pick(MOUTHS, "mouth"))
     + (extra === "beanie" || extra === "headset" ? accessory(extra, hue) : "")

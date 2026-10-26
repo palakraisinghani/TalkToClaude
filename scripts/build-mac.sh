@@ -58,12 +58,18 @@ cat >"$APP/Contents/Info.plist" <<EOF
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>ClaudeCall listens when you talk to your team.</string>
+  <key>NSHumanReadableCopyright</key><string>ClaudeCall</string>
 </dict>
 </plist>
 EOF
-cp "$ROOT/scripts/mac-launcher.sh" "$APP/Contents/MacOS/ClaudeCall"
-chmod +x "$APP/Contents/MacOS/ClaudeCall" "$RES/app/scripts/service.sh"
+# the window (mac/main.swift) is the app's program; the launcher script does the setting up
+swiftc -O -target arm64-apple-macos12 -o "$APP/Contents/MacOS/ClaudeCall" "$ROOT/mac/main.swift" -framework Cocoa -framework WebKit
+cp "$ROOT/scripts/mac-launcher.sh" "$RES/launcher.sh"
+chmod +x "$RES/launcher.sh" "$RES/app/scripts/service.sh"
 printf '%s\n' "$VERSION" >"$RES/version"
+# which build this is: installing a newer one over it restarts the service, even at the same version
+printf '%s\n' "$VERSION-$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null)-$(date +%s)" >"$RES/build"
 
 # ---------- sign (ad hoc) and package ----------
 codesign --force --deep --sign - "$APP" 2>&1 | grep -v "replacing existing signature" || true

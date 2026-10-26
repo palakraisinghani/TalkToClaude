@@ -20,4 +20,12 @@ if ! up; then
 fi
 # the code travels after the #, which never leaves the browser; the page drops it at once
 [ -n "${CLAUDECALL_NO_OPEN:-}" ] && exit 0
-xdg-open "$SCHEME://localhost:$PORT/#code=$(get BUDDY_TOKEN)" >/dev/null 2>&1 &
+URL="$SCHEME://localhost:$PORT/#code=$(get BUDDY_TOKEN)"
+# a window of its own, no tabs or address bar, when a Chromium-based browser is there to give one
+for b in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge brave-browser; do
+  if command -v "$b" >/dev/null 2>&1; then
+    "$b" --app="$URL" --class=ClaudeCall >/dev/null 2>&1 &
+    exit 0
+  fi
+done
+xdg-open "$URL" >/dev/null 2>&1 &

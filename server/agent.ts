@@ -42,6 +42,8 @@ export class ClaudeSession implements Agent {
   /** Extra command-line flags, and environment, for a session that is not a full agent (the Refiner). */
   private extraArgs: string[];
   private env: Record<string, string>;
+  /** The model Claude Code last said it is running. */
+  private running = "";
   private replacePrompt: boolean;
 
   constructor(opts: { cwd: string; systemPrompt: string; permissionMode?: string; resume?: string; model?: string; extraArgs?: string[]; env?: Record<string, string>; replaceSystemPrompt?: boolean }) {
@@ -264,6 +266,9 @@ export class ClaudeSession implements Agent {
     // Only real conversation counts as the session working. Hook notices ("SessionStart") arrive
     // even when the session to resume no longer exists, so they prove nothing.
     if ((ev.type === "system" && ev.subtype === "init") || ev.type === "stream_event" || ev.type === "assistant") this.heard = true;
+    // the exact model, as Claude Code reports it: at the start, and with every reply after a change
+    const running = (ev.type === "system" && ev.subtype === "init" ? ev.model : ev.type === "assistant" ? ev.message?.model : "") || "";
+    if (running && running !== this.running && !running.startsWith("<")) { this.running = running; this.emit(this.active, { kind: "model", model: running }); }
     const failedResume = this.resuming && !this.heard;
     if (ev.session_id && !failedResume) this.sessionId = ev.session_id;
     // Claude Code summarised the conversation to make room: what it was told before may be gone

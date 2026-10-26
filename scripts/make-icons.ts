@@ -9,11 +9,14 @@ import sharp from "sharp";
 
 const web = join(import.meta.dirname, "..", "web");
 const svg = await readFile(join(web, "icon.svg"), "utf8");
-// full bleed: the background square runs to the edges, and the bubble shrinks into the safe zone
-const bleed = svg
-  .replace(/<rect x="2" y="2" width="60" height="60" rx="15"/, '<rect x="0" y="0" width="64" height="64" rx="0"')
-  .replace(/<path d="M14 15h31/, '<g transform="translate(32 32) scale(.78) translate(-29.5 -33)"><path d="M14 15h31')
+// full bleed: the background square runs to the edges, and the artwork on it shrinks into the safe
+// zone. Everything after the background square is the artwork, whatever the logo is.
+const BG = '<rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>';
+if (!svg.includes(BG)) throw new Error("icon.svg: expected the background square as " + BG);
+const art = (scale: number, background: boolean) => svg
+  .replace(BG, `${background ? '<rect x="0" y="0" width="64" height="64" fill="url(#bg)"/>' : ""}<g transform="translate(32 32) scale(${scale}) translate(-32 -32)">`)
   .replace("</svg>", "</g></svg>");
+const bleed = art(0.86, true);
 const out = async (src: string, size: number, name: string) => {
   await sharp(Buffer.from(src), { density: 72 * (size / 64) * 2 }).resize(size, size).png().toFile(join(web, name));
   console.log(name);
@@ -26,9 +29,7 @@ await out(bleed, 512, "icon-maskable.png");
 
 // Android's adaptive icon: the artwork alone on a transparent square, inside the middle two thirds
 // it keeps whatever shape it crops to; the orange behind it is the icon's background colour
-const foreground = bleed
-  .replace(/<rect x="0" y="0" width="64" height="64" rx="0" fill="url\(#bg\)"\/>/, "")
-  .replace('scale(.78)', 'scale(.6)');
+const foreground = art(0.66, false);
 await sharp(Buffer.from(foreground), { density: 72 * (432 / 64) * 2 }).resize(432, 432).png()
   .toFile(join(import.meta.dirname, "..", "android", "app", "src", "main", "res", "mipmap-xxxhdpi", "ic_launcher_foreground.png"));
 console.log("android ic_launcher_foreground.png");

@@ -36,7 +36,8 @@ node_bin() {
 free_port() {
   p=$1
   while [ "$p" -lt $(($1 + 20)) ]; do
-    "$(node_bin)" -e 'const s = require("net").createServer(); s.once("error", () => process.exit(1)); s.listen(+process.argv[1], () => s.close(() => process.exit(0)))' "$p" 2>/dev/null && { echo "$p"; return; }
+    # free when nothing answers there (binding to test it can succeed beside a server on 127.0.0.1)
+    "$(node_bin)" -e 'const c = require("net").connect(+process.argv[1], "127.0.0.1"); c.once("connect", () => process.exit(1)); c.once("error", () => process.exit(0)); setTimeout(() => process.exit(0), 1500)' "$p" 2>/dev/null && { echo "$p"; return; }
     p=$((p + 1))
   done
   echo "$1"
