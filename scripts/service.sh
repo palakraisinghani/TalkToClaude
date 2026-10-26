@@ -51,9 +51,11 @@ write_env() {
     # the app's own folders, added to settings made before it was installed
     for v in BUDDY_DATA BUDDY_MODEL_CACHE; do
       val=$(eval "printf %s \"\${$v:-}\"")
-      [ -n "$val" ] && ! grep -q "^$v=" "$ENV_FILE" && echo "$v=\"$val\"" >>"$ENV_FILE"
+      if [ -n "$val" ] && ! grep -q "^$v=" "$ENV_FILE"; then echo "$v=\"$val\"" >>"$ENV_FILE"; fi
     done
-    return
+    # explicitly: a bare "return" passes on the last test's "false", and under set -e that ended
+    # the whole install right here — so updating the app never restarted the service
+    return 0
   fi
   # a code that stays the same across restarts, so a phone that has it keeps working
   token=$(od -An -N5 -tx1 /dev/urandom | tr -d ' \n')
@@ -116,8 +118,19 @@ install_mac() {
 </dict>
 </plist>
 EOF
+  # Stopping finishes in the background: starting the same service again before the old one is
+  # gone fails with "Bootstrap failed: 5: Input/output error" — which once left an update with
+  # nothing running at all. Wait for the old one to go, then start, trying a few times.
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+  for _ in $(seq 1 40); do
+    launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
+    sleep 0.25
+  done
+  for try in 1 2 3 4 5; do
+    launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null && return 0
+    sleep 1
+  done
+  launchctl bootstrap "gui/$(id -u)" "$plist" # once more, so its error reaches the log
 }
 
 install_linux() {

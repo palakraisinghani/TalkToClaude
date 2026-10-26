@@ -78,18 +78,20 @@ PORT=$(get PORT); PORT=${PORT:-3747}
 SCHEME=http
 [ "$(get BUDDY_HOST)" = 0.0.0.0 ] && SCHEME=https
 
-# not answering (stopped, or crashed and given up on): start it again
-if ! curl -ksf -o /dev/null "$SCHEME://localhost:$PORT/"; then
+# Up, and the build that came with this copy of the app? An update that left the old server
+# running once went unnoticed for hours; now the running build is checked, and restarted if old.
+running() { curl -ksf --max-time 3 "$SCHEME://localhost:$PORT/version" 2>/dev/null; }
+wait_for() { for _ in $(seq 1 80); do [ "$(running)" = "$1" ] && return 0; sleep 0.5; done; return 1; }
+if [ "$(running)" != "$VERSION" ]; then
+  echo "running build: $(running || echo none); this app: $VERSION — restarting the service"
   launchctl kickstart -k "gui/$(id -u)/$LABEL" 2>/dev/null || true
+  if ! wait_for "$VERSION"; then
+    echo "still not the new build after a restart: $(running || echo none)"
+    alert "ClaudeCall did not start this version. Details are in ~/Library/Logs/ClaudeCall.log and ~/Library/Logs/ClaudeCall-launcher.log"
+    exit 1
+  fi
 fi
-for _ in $(seq 1 60); do
-  curl -ksf -o /dev/null "$SCHEME://localhost:$PORT/" && break
-  sleep 0.5
-done
-if ! curl -ksf -o /dev/null "$SCHEME://localhost:$PORT/"; then
-  alert "ClaudeCall did not start. Details are in ~/Library/Logs/ClaudeCall.log"
-  exit 1
-fi
+echo "running build $VERSION on port $PORT"
 
 # this is the owner's own Mac: the code goes along, so there is nothing to type here. It travels
 # after the #, which never leaves the browser, and the page takes it out of the address at once

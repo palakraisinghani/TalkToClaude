@@ -166,9 +166,15 @@ async function renameOffline(id: string, name: string): Promise<string | null> {
 }
 const tls = useTls ? await ensureCert(join(dataDir, "certs")) : null;
 
+// Which build this server is. The app writes a stamp beside itself (scripts/build-mac.sh); from
+// source it is the moment it started. The launcher checks it after an update to be sure the new
+// server really took over, and the page reloads itself when it changes.
+const build = (await readText(join(root, "..", "build"), "utf8").catch(() => "")).trim() || `dev-${Date.now().toString(36)}`;
+
 const handler = async (req: any, res: any) => {
   try {
     const url = decodeURIComponent((req.url ?? "/").split("?")[0]);
+    if (url === "/version") return void res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" }).end(build);
     // a media link the page was given over the socket; the token is the only way in
     if (url.startsWith("/media/") && (await media.serve(req, res, url.slice("/media/".length)))) return;
     const [prefix, dir] = STATIC.find(([p]) => url.startsWith(p))!;
@@ -264,6 +270,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   const pictureWait = sameComputer ? 0 : 1500;
   sockets.add(ws);
   const send = (m: Record<string, any>) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
+  send({ type: "hello", build });
   send({ type: "stt", state: sttState, recogniser: hearing.recogniser });
   send(hearingView());
   // the page can place each voice in space when this machine can make speech as audio

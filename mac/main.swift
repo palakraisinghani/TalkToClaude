@@ -23,7 +23,15 @@ func setting(_ key: String) -> String? {
     return value
 }
 
+/** This copy's build stamp, as it is on disk now (scripts/build-mac.sh writes it). */
+func buildOnDisk() -> String {
+    guard let url = Bundle.main.url(forResource: "build", withExtension: nil) else { return "" }
+    return ((try? String(contentsOf: url, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate {
+    /** The build this process started as; a different one on disk means the app was updated. */
+    let launchedBuild = buildOnDisk()
     var window: NSWindow!
     var web: WKWebView!
     var address: URL?
@@ -52,9 +60,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         NSApp.activate(ignoringOtherApps: true)
         web.loadHTMLString(Self.startingPage, baseURL: nil)
         start()
+        // and every half minute, for an update that arrives while it sits open in the background
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.relaunchIfUpdated() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+
+    /**
+     * Replaced by a newer copy while open (dragged in from a new disk image): opening it again only
+     * brings this old process forward, so it relaunches itself as the new version.
+     */
+    func applicationDidBecomeActive(_ note: Notification) { relaunchIfUpdated() }
+
+    /** Opened again from Finder, the Dock or `open` while already running (and in front). */
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        relaunchIfUpdated()
+        return true
+    }
+
+    func relaunchIfUpdated() {
+        let now = buildOnDisk()
+        guard !now.isEmpty, !launchedBuild.isEmpty, now != launchedBuild else { return }
+        let relaunch = Process()
+        relaunch.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        relaunch.arguments = ["-n", Bundle.main.bundlePath]
+        try? relaunch.run()
+        NSApp.terminate(nil)
+    }
 
     /** Run the launcher (service set up and running), then open ClaudeCall in the window. */
     func start() {

@@ -1468,6 +1468,9 @@ function showReach(lan) {
 }
 
 // ---------- after connecting: is Claude Code installed and signed in? ----------
+/** The server build this page came from; a different one after a reconnect means an update. */
+let serverBuild = "";
+let updatePending = false;
 let claudeSkipped = false;
 let claudePoll = 0;
 function markCheck(id, ok, note) {
@@ -1717,6 +1720,13 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "hello":
+      // the server was updated while this page was open: load the new page that goes with it
+      if (serverBuild && m.build !== serverBuild && !onCall) return location.reload();
+      if (serverBuild && m.build !== serverBuild) feedNote("ClaudeCall was updated. It will reload when this call ends.", null);
+      if (!serverBuild || !onCall) serverBuild = m.build;
+      updatePending = serverBuild !== m.build;
+      break;
     case "control-done": controlDone(m); break;
     case "reach": showReach(m.lan ?? []); break;
     case "claude-login": claudeLogin(m); break;
@@ -2335,6 +2345,8 @@ async function startCall() {
 function endCall(message) {
   if (!onCall) return;
   onCall = false;
+  // an update arrived during the call: take it now that the call is over
+  if (updatePending) setTimeout(() => location.reload(), 1500);
   clearInterval(sleepTimer);
   queue = [];
   att = attention.createAttention();

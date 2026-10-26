@@ -44,6 +44,10 @@ disk image, it offers to copy itself there. Opening the app does two things:
 - shows it in a window of its own, already signed in, with the microphone allowed
 
 Closing the window doesn't stop your team: the agents keep working in the background.
+
+To update, drag the new ClaudeCall from its disk image over the old one, even while it's open. The
+open window notices it was replaced and relaunches as the new version. The background service is
+restarted on the new build, and the app checks that the running server really is the new one.
 View → Open in Browser shows the same call in a browser tab.
 
 It starts clean: just Ada, no team yet. The projects she sets up go in `~/ClaudeCall`. Its
