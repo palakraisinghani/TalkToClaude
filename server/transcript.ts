@@ -80,6 +80,12 @@ export class Transcript {
         return this.#append({ type: "error", turn, text: m.text });
       case "done":
         return this.#append({ type: "done", turn, interrupted: !!m.interrupted });
+      // what Ada set in motion, and how it went: the record a "she said it but nothing happened"
+      // needs (before, actions left no trace here at all)
+      case "action":
+        return this.#append({ type: "action", turn, name: m.name, attrs: m.attrs, brief: trim(m.body, 300) });
+      case "action-result":
+        return this.#append({ type: "action-result", turn, name: m.name, ok: m.ok, text: m.text });
       default:
         return; // stt readiness, thinking and working notes are not part of the call record
     }

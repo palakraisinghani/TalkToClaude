@@ -14,8 +14,14 @@ export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "clos
 
 type Section = "none" | "say" | "screen" | "question";
 export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget", "control"];
-/** How far an action tag may run without closing before it is taken to be ordinary text. */
+/**
+ * How far an action tag's opening may run without its ">" before it is taken to be ordinary text.
+ * Its body — a brief — may be far longer (BODY_MAX): briefs for new agents run 1,000–1,600
+ * characters, and a 600-character limit here once threw every one of them away without a word.
+ */
 const ACTION_MAX = 600;
+/** A body longer than this without its closing tag is not a brief but runaway text. */
+const BODY_MAX = 40_000;
 // long enough to hold back the start of the longest tag name, "<question" or "<delegate "
 const HOLD = 12;
 
@@ -132,8 +138,10 @@ export class ReplyParser {
       const close = `</${name}>`;
       const i = this.buf.indexOf(close, end);
       if (i < 0) {
+        // speech starting first means it was prose that mentioned a tag, not a tag (agents close
+        // theirs: measured on real calls, 36 of 37); otherwise wait for the close, however long
         const speech = this.buf.indexOf("<say>", end);
-        return speech >= 0 || this.buf.length - end > ACTION_MAX ? notAnAction(end) : null;
+        return speech >= 0 || this.buf.length - end > BODY_MAX ? notAnAction(end) : null;
       }
       body = this.buf.slice(end, i).trim();
       end = i + close.length;
@@ -141,6 +149,19 @@ export class ReplyParser {
     const text = this.buf.slice(0, end);
     this.buf = this.buf.slice(end);
     return { kind: "action", name, attrs: attrs(head), body, text };
+  }
+
+  /**
+   * An action tag still being written: its name and attributes once its opening is complete.
+   * What an interrupted reply was in the middle of, so the agent can be told it did not happen.
+   */
+  unfinished(): { name: ActionName; attrs: Record<string, string> } | null {
+    const m = this.open.exec(this.buf);
+    if (!m || m.index !== 0) return null;
+    const name = (m[2] ?? "") as ActionName; // m[1] is a <say>-like section, not an action
+    const gt = this.buf.indexOf(">");
+    if (!name || gt < 0) return null;
+    return { name, attrs: attrs(this.buf.slice(1 + name.length, gt)) };
   }
 
   end(): ParsedEvent[] {

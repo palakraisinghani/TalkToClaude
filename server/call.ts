@@ -108,6 +108,10 @@ class Project {
   deferred = new Map<number, Action[]>();
   /** Tags being carried out, one after another, in the order they were written. */
   acting: Promise<unknown> = Promise.resolve();
+  /** Tags already carried out, by turn: what she is told was done if that turn is cut off. */
+  carried = new Map<number, string[]>();
+  /** Turns cut off whose unfinished tag she has already been told about. */
+  cutNoted = new Set<number>();
   branch = "";
   turnsDone = 0;
   sessionId = "";
@@ -282,6 +286,10 @@ export class Call {
     }
     p.pendingQuestion = null;
     p.questionId = "";
+    // This message is about to cut Ada off mid-reply. Whatever tags she had already written are
+    // done; one she was still writing is not. She is told so in this same message — the old turn
+    // only winds down after it has gone — so she neither repeats a tag nor assumes a lost one.
+    if (p.central && !queued && p.session?.isBusy()) this.noteCutOff(p, p.turn);
     const notes = p.notes.splice(0).map((n) => `[note from ClaudeCall: ${n}]`).join(" ");
     const lead = [...this.preface(p, onLine, !!ctx?.replace), cutIn(ctx), notes, from].filter(Boolean).join(" ");
     // a snapshot of the folder before a new piece of work, so it can be undone (git folders only)
@@ -654,6 +662,16 @@ export class Call {
     return { ok: false, said: `"${what}" is not a control.` };
   }
 
+  /** What a turn of Ada's that is being cut off had done, and what it was in the middle of. */
+  private noteCutOff(p: Project, turn: number): void {
+    if (p.cutNoted.has(turn)) return;
+    p.cutNoted.add(turn);
+    const done = p.carried.get(turn) ?? [];
+    const cut = p.parsers.get(turn)?.unfinished();
+    if (done.length) p.notes.push(`you were cut off, but these were already carried out: ${done.join(", ")}. Do not write them again`);
+    if (cut) p.notes.push(`you were cut off while still writing ${tagLabel(cut.name, cut.attrs)}, so it was NOT carried out. If it is still wanted, write it again in full`);
+  }
+
   /** A setting only read when the session starts: restart it as soon as it has nothing running. */
   private restartWhenFree(p: Project): void {
     if (!p.session) return;
@@ -785,12 +803,15 @@ export class Call {
   private async act(actions: Action[]): Promise<void> {
     const problems: string[] = [];
     for (const a of actions) {
+      let problem: string | null = null;
       try {
-        const problem = await this.perform(a);
-        if (problem) problems.push(problem);
+        problem = await this.perform(a);
       } catch (e: any) {
-        problems.push(`${a.text.slice(0, 80)} failed: ${e.message}`);
+        problem = `${tagLabel(a.name, a.attrs)} failed: ${e.message}`;
+        console.error("action failed:", a.name, e);
       }
+      if (problem) problems.push(problem);
+      this.central.transcript?.log({ type: "action-result", turn: this.central.turn, name: a.name, ok: !problem, text: problem ?? "done" });
     }
     // queued: the lead may have asked her something else meanwhile, and that must not be cut off
     if (problems.length) this.ask(CENTRAL_ID, `[result of your actions] ${problems.join(" ")}`, null, { keepFocus: true, queue: true });
@@ -869,6 +890,14 @@ export class Call {
         return null;
       }
       case "new": {
+        // already on the team (she wrote it again after being cut off, say): the brief goes to them
+        const already = attrs.name ? this.find(attrs.name) : null;
+        if (already && !already.central) {
+          if (already.state === "parked") already.state = "cold";
+          if (body) this.assign(already, body, attrs.focus === "true");
+          else this.focus(already.config.id);
+          return null;
+        }
         const folder = (attrs.folder || attrs.name || "").trim().replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "-");
         if (!folder) return "A new project needs a folder or a name.";
         const dir = join(this.opts.home, folder);
@@ -1175,6 +1204,7 @@ export class Call {
           // so being interrupted can never undo it.
           if (FLOOR_ACTIONS.has(e.name)) p.deferred.set(turn, [...(p.deferred.get(turn) ?? []), e]);
           else p.acting = p.acting.then(() => this.act([e])).catch((err) => console.error(err));
+          p.carried.set(turn, [...(p.carried.get(turn) ?? []), tagLabel(e.name, e.attrs)]);
         }
         else if (e.name === "voice") {
           // an agent may change how it sounds — its own voice only, never anyone else's
@@ -1295,6 +1325,8 @@ export class Call {
           if (!p.central) this.remember();
         }
         if (!ev.interrupted) await this.parsed(p, turn, p.parserFor(turn).end());
+        // cut off some other way (stop, the call ending): she hears what was and wasn't done next time
+        if (p.central && ev.interrupted) this.noteCutOff(p, turn);
         p.parsers.delete(turn);
         if (p.handoff) {
           // asked for, so done: an interruption does not take it back
@@ -1326,6 +1358,8 @@ export class Call {
         }
         this.publish();
         if (p.restartAfterTurn && !p.session?.isBusy()) { p.restartAfterTurn = false; this.restartWhenFree(p); }
+        p.carried.delete(turn);
+        p.cutNoted.delete(turn);
         const deferred = p.deferred.get(turn) ?? [];
         p.deferred.delete(turn);
         p.said = []; // the next turn, queued or not, starts its own report
@@ -1336,6 +1370,12 @@ export class Call {
       }
     }
   }
+}
+
+/** A tag as Ada is reminded of it: <new name="Juno" folder="cat">. */
+function tagLabel(name: string, attrs: Record<string, string>): string {
+  const a = Object.entries(attrs).filter(([k]) => ["name", "folder", "to", "path", "do", "value"].includes(k)).map(([k, v]) => ` ${k}="${v}"`).join("");
+  return `<${name}${a}>`;
 }
 
 /** How the lead says a mode, and what it is called back to them. */

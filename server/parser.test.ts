@@ -102,3 +102,25 @@ test("an action tag that never closes is let go as text instead of swallowing th
   assert.deepEqual(of(ev, "sentence"), ["All set."]);
   assert.match(of(ev, "aside").join(""), /<open path="x">/);
 });
+
+// ---------- Ada's tags must never be lost: what went wrong on a real call ----------
+const brief = "Build a desktop cat that roams the screen. ".repeat(40); // ~1,700 characters
+const all = (p: ReplyParser, chunks: string[]) => [...chunks.flatMap((c) => p.feed(c)), ...p.end()];
+
+test("a tag with a long brief is an action, not text (briefs over 600 characters were dropped)", () => {
+  const p = new ReplyParser();
+  const evs = all(p, [`<say>Setting Juno up.</say>\n<new name="Juno" folder="digital-pet">`, ...brief.match(/.{1,50}/g)!, `</new>`]);
+  const a = evs.find((e) => e.kind === "action");
+  assert.ok(a, "the <new> tag was lost");
+  assert.equal(a!.kind === "action" && a!.name, "new");
+  assert.equal(a!.kind === "action" && a!.body.length, brief.trim().length);
+});
+
+test("an interrupted reply says which tag it was in the middle of", () => {
+  const p = new ReplyParser();
+  p.feed(`<say>Sure.</say><new name="Juno" folder="cat">make a cat that`);
+  assert.deepEqual(p.unfinished(), { name: "new", attrs: { name: "Juno", folder: "cat" } });
+  const q = new ReplyParser();
+  q.feed(`<say>Sure, starting`);
+  assert.equal(q.unfinished(), null);
+});
