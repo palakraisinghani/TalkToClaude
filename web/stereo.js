@@ -15,6 +15,9 @@
 // `waitMs` is handed back as failed and the browser says it, in the same voice but from the middle:
 // a voice slightly out of place is better than a silence after the words are already on screen.
 
+/** How loud a voice stays while the lead talks over it. */
+const DUCKED = 0.18;
+
 export class StereoEngine {
   /**
    * `fetchAudio(text, identity)` resolves to WAV bytes (an ArrayBuffer) for one sentence.
@@ -26,6 +29,20 @@ export class StereoEngine {
     this.fetchAudio = fetchAudio;
     this.width = width;
     this.cache = new Map(); // text+voice -> Promise<AudioBuffer>
+    this.playing = null; // { out, base }: the sentence now sounding, for duck()
+    this.ducked = false;
+  }
+
+  /**
+   * Turn the voice down at once (the lead started talking over it) or back up. Turned down, not
+   * stopped: if it was only noise or its own echo the sentence carries on; if it was the lead, the
+   * caller stops it a moment later, once their words are in.
+   */
+  duck(on) {
+    this.ducked = on;
+    const p = this.playing;
+    if (!p) return;
+    p.out.gain.setTargetAtTime(on ? p.base * DUCKED : p.base, this.ctx.currentTime, 0.04);
   }
 
   #key(text, identity) { return `${identity?.voices?.[0] ?? ""}|${identity?.rate ?? 1}|${text}`; }
@@ -66,7 +83,9 @@ export class StereoEngine {
       src = ctx.createBufferSource();
       src.buffer = buf;
       const out = ctx.createGain();
-      out.gain.value = identity?.volume ?? 1; // each agent's own loudness
+      const base = identity?.volume ?? 1; // each agent's own loudness
+      out.gain.value = this.ducked ? base * DUCKED : base;
+      this.playing = { out, base };
       const pan = ctx.createStereoPanner?.();
       if (pan) { pan.pan.value = Math.max(-1, Math.min(1, (identity?.pan ?? 0) * this.width)); src.connect(pan).connect(out); }
       else src.connect(out);
@@ -76,7 +95,7 @@ export class StereoEngine {
       for (const m of text.matchAll(/\S+/g)) {
         timers.push(setTimeout(() => { if (!stopped) onWord(m.index, m[0].length); }, (m.index / span) * buf.duration * 1000));
       }
-      src.onended = () => { if (!stopped) { stopped = true; onEnd(false); } };
+      src.onended = () => { if (this.playing?.out === out) this.playing = null; if (!stopped) { stopped = true; onEnd(false); } };
       src.start();
     }).catch(() => { clearTimeout(late); if (!stopped) { stopped = true; onEnd(true); } });
     return {

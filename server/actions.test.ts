@@ -65,3 +65,18 @@ test("removing an agent waits for the lead's confirmation, even after Ada's turn
   call.grant(CENTRAL_ID, "once", ask.requestId);
   assert.deepEqual(names(), []);
 });
+
+test("cut in on, Ada's floor move is skipped and she is told; her work still happens", async () => {
+  const { call, c, ada, fake, sent, names } = make();
+  call.ask(CENTRAL_ID, "set up Pip and put me through");
+  const turn = ada.turn;
+  fake.busy = true;
+  await feed(c, ada, turn, `<new name="Pip" folder="pet">a cat</new><switch to="pip"/>`);
+  call.ask(CENTRAL_ID, "wait, one more thing", { kind: "interrupted", heard: "", unheard: [], working: true });
+  const last = sent.at(-1)!;
+  assert.match(last, /already carried out: <new name="Pip"/);
+  assert.match(last, /because the lead cut in, <switch to="pip"> did not happen/);
+  await c.handle(ada, turn, { kind: "done", sessionId: "", interrupted: true });
+  assert.deepEqual(names(), ["Pip"]);
+  assert.notEqual(c.focused, "pip", "the floor moved away from the lead who had just cut in");
+});

@@ -88,6 +88,15 @@ export class Voice {
     this.#next();
   }
 
+  /**
+   * Quieter at once while the lead talks over the voice, back to full when it turns out to be
+   * nothing. Only the stereo engine can change the loudness of a sentence already playing; the
+   * browser's own speech carries on unchanged until it is stopped.
+   */
+  duck(on) {
+    this.engine?.duck?.(on);
+  }
+
   /** Stop instantly but remember the position, so resume() picks up at the same word. */
   hold() {
     this.held = true;
@@ -111,6 +120,7 @@ export class Voice {
   /** Drop everything: a new turn is starting. */
   clear() {
     this.held = false;
+    this.duck(false); // the next thing said is at full volume
     this.gen++;
     this.queue = [];
     const c = this.current;

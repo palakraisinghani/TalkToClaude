@@ -1851,6 +1851,7 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
   if (!t || t.length < 2) {
     if ((ducked || continuing) && !userPaused) voice.resume();
     ducked = continuing = false;
+    undip();
     showYou("—");
     render();
     return;
@@ -1865,6 +1866,7 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
       lastIgnored = { t, at: Date.now() };
       if ((ducked || continuing) && !userPaused) voice.resume();
       ducked = continuing = false;
+      undip();
       // over a voice, pieces of pure echo arrive every few seconds by design: drop them quietly
       if (!overVoice) {
         showYou(`(heard that as my own echo: ${text}) — say it again and I will take it`);
@@ -1891,6 +1893,9 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
   }
   const out = act(r, text, typed);
   if (heldForYou && !userPaused && voice.held) voice.resume();
+  // your words are in and acted on: a message to an agent has cleared the voice already; a quick
+  // command ("status", "pause") leaves it to carry on, at full volume again
+  undip();
   return out;
 }
 
@@ -2216,7 +2221,11 @@ function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
   // busy means busy for whoever it is for: "Rex, also add tests" while talking to Juno must not
   // cut Rex's running work off either
   const busy = target === focusedId ? working : project(target)?.state === "working";
-  if (busy && !merge) {
+  // Ada is cut off for real: whatever tags she had written still happen, one she was in the middle
+  // of is reported back to her, so nothing is lost (server: noteCutOff). A project agent at work is
+  // not: what you say goes in beside the work as a side question, and the work carries on.
+  const sideQuestion = busy && !merge && target !== centralId;
+  if (sideQuestion) {
     voice.clear();
     userPaused = false;
     lastAsk = { text: prompt, at: Date.now(), btw: true, project: target };
@@ -2229,7 +2238,7 @@ function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
   // Talking never kills work. If the agent on the line is busy, what you said waits behind it,
   // and the work's own report still plays when it lands. Only "stop" cuts work off.
   // A merged sentence whose first half was queued stays queued, replacing that half.
-  const queued = merge ? !!lastAsk?.queued : busy;
+  const queued = merge ? !!lastAsk?.queued : busy && target !== centralId;
   if (merge && currentTurn > 0 && target === focusedId) {
     // replace the turn we just sent rather than cutting in on it: it was your own half-sentence
     dropped.add(key(target, currentTurn));
@@ -2311,6 +2320,7 @@ async function startCall() {
       onSpeechStart,
       onMisfire: () => {
         hearing = false;
+        undip();
         if (ringAfterSpeech) { ringAfterSpeech = false; ring(ringFrom); }
         if (carry) { const c = carry; carry = ""; heardText(c); return; }
         if ((ducked || continuing) && !userPaused) voice.resume();
@@ -2370,6 +2380,13 @@ function endCall(message) {
   render();
 }
 
+let dipped = false, dipTimer = 0;
+/** Back to full volume: what started over the voice was noise, or its own echo. */
+function undip() {
+  clearTimeout(dipTimer);
+  if (dipped) { dipped = false; voice.duck(false); }
+}
+
 function onSpeechStart() {
   if (!onCall || muted) return;
   hearing = true;
@@ -2379,6 +2396,14 @@ function onSpeechStart() {
   showYou("…", true);
   // with headphones the voice cannot reach the mic, so cut it off the moment you speak
   if ($("phones").checked && voice.speaking && !userPaused) { ducked = true; voice.hold(); }
+  // On speakers it might be the voice's own echo, so it is not cut yet: it drops right down, at
+  // once — you hear it give way — and stops as soon as your words show it was you (heardText).
+  else if (voice.speaking && !userPaused) {
+    dipped = true;
+    voice.duck(true);
+    clearTimeout(dipTimer);
+    dipTimer = setTimeout(undip, 8000); // nothing came of it: back up
+  }
   render();
 }
 

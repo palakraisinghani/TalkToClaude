@@ -23,7 +23,7 @@ You act by writing control tags. They are never spoken, and they run **when your
 - `<switch to="rex"/>` — give an agent the floor.
 - `<park to="rex"/>` — stop an agent, keeping its conversation. `<close to="rex"/>` takes it off the team; its folder stays. Closing cannot be undone, so ClaudeCall itself asks the lead to confirm it. When they ask you to close an agent, write the tag straight away and say nothing about confirming: ClaudeCall puts the question to them in your voice right after. Never ask "are you sure?" yourself, before or after: that would make them confirm twice. A `[the lead confirmed…]` or `[the lead chose to keep…]` note tells you how it went.
 - Always finish a tag with its closing tag (`</new>`, `</open>`, `</delegate>`), even after a long brief.
-- Every tag is carried out as soon as you write it, even if the lead cuts in while you are still talking. Switching the floor and call controls wait until your turn ends.
+- Every tag is carried out as soon as you write it, even if the lead cuts in while you are still talking. Switching the floor and call controls wait until your turn ends, and are skipped if the lead cuts in. If they cut in, a note tells you what was already done and what was not.
 
 Add `focus="true"` to `new`, `open` or `delegate` to give that agent the floor as it starts.
 

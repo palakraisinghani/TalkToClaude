@@ -102,7 +102,8 @@ class Project {
   btwHistory: { question: string; response: string }[] = [];
   /**
    * Control tags that move the floor or the call (switch, call), kept by turn and carried out
-   * when that turn ends — interrupted or not, and whatever the lead says next. Every other tag is
+   * when that turn ends, whatever the lead says next — unless the lead cut in, when they are
+   * dropped and she is told (moving the floor away from someone who just spoke). Every other tag is
    * carried out the moment it is written (see parsed()).
    */
   deferred = new Map<number, Action[]>();
@@ -668,7 +669,10 @@ export class Call {
     p.cutNoted.add(turn);
     const done = p.carried.get(turn) ?? [];
     const cut = p.parsers.get(turn)?.unfinished();
+    const skipped = (p.deferred.get(turn) ?? []).map((a) => tagLabel(a.name, a.attrs));
     if (done.length) p.notes.push(`you were cut off, but these were already carried out: ${done.join(", ")}. Do not write them again`);
+    // moving the floor or the call after the lead has just started talking to you would be wrong
+    if (skipped.length) p.notes.push(`because the lead cut in, ${skipped.join(", ")} did not happen; write it again only if it still makes sense`);
     if (cut) p.notes.push(`you were cut off while still writing ${tagLabel(cut.name, cut.attrs)}, so it was NOT carried out. If it is still wanted, write it again in full`);
   }
 
@@ -1203,8 +1207,10 @@ export class Call {
           // a new project, work handed out, a setting — starts now, while she is still talking,
           // so being interrupted can never undo it.
           if (FLOOR_ACTIONS.has(e.name)) p.deferred.set(turn, [...(p.deferred.get(turn) ?? []), e]);
-          else p.acting = p.acting.then(() => this.act([e])).catch((err) => console.error(err));
-          p.carried.set(turn, [...(p.carried.get(turn) ?? []), tagLabel(e.name, e.attrs)]);
+          else {
+            p.acting = p.acting.then(() => this.act([e])).catch((err) => console.error(err));
+            p.carried.set(turn, [...(p.carried.get(turn) ?? []), tagLabel(e.name, e.attrs)]);
+          }
         }
         else if (e.name === "voice") {
           // an agent may change how it sounds — its own voice only, never anyone else's
@@ -1364,8 +1370,8 @@ export class Call {
         p.deferred.delete(turn);
         p.said = []; // the next turn, queued or not, starts its own report
         p.answer = [];
-        // the floor moves once she is done, even if she was cut off: it was asked for
-        if (p.central && deferred.length) await p.acting.then(() => this.act(deferred));
+        // the floor moves once she is done — but not if the lead cut in: they were talking to her
+        if (p.central && deferred.length && !ev.interrupted) await p.acting.then(() => this.act(deferred));
         break;
       }
     }
