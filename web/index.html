@@ -623,6 +623,8 @@
   .setupcard .row2 { display: flex; gap: 10px; flex-wrap: wrap; }
   .setupcard .row2 .wbtn { flex: 1; min-width: 180px; }
   #setupMsg { color: var(--think); font-size: 13px; min-height: 1.2em; margin: 0; }
+  .reach { display: grid; gap: 6px; margin: 6px 0 0 36px; }
+  .reach[hidden] { display: none; }
 
   /* narrower screens: canvas and behind the scenes share one column, as tabs */
   @media (max-width: 1500px) {
@@ -1003,6 +1005,14 @@
     <label class="setting"><span class="si" data-icon="note"></span><span class="st2"><b>Agent chimes</b><small>A short tone from each agent's side before it speaks, so you know who it is.</small></span><input type="checkbox" class="sw" id="earcons" role="switch" checked></label>
     <label class="setting" id="stereoRow" hidden><span class="si" data-icon="waves"></span><span class="st2"><b>Voices placed left and right</b><small>Each agent speaks from its own side, in its own voice, so on headphones you know who is talking straight away.</small></span><input type="checkbox" class="sw" id="stereoToggle" role="switch" checked></label>
     <label class="setting"><span class="si" data-icon="bell"></span><span class="st2"><b>Ring when someone needs you</b><small>A soft chime the moment a request lands in Waiting.</small></span><input type="checkbox" class="sw" id="ringToggle" role="switch" checked></label>
+  </div>
+  <div class="group">
+    <h4>Phones and tablets</h4>
+    <div class="setting" style="cursor:default"><span class="si" data-icon="phone"></span><span class="st2"><b>Join from another device</b><small id="reachText">Open this address on your phone or tablet, or type it into the ClaudeCall Android app, with the access code.</small></span></div>
+    <div class="reach" id="reachBox">
+      <div class="cmdline"><code id="reachUrl">—</code><button type="button" data-copy>Copy</button></div>
+      <div class="cmdline"><code id="reachCode">—</code><button type="button" data-copy>Copy</button></div>
+    </div>
   </div>
   <div class="group">
     <h4>Microphone</h4>

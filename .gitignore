@@ -6,3 +6,7 @@ buddy.projects.json
 .DS_Store
 build/
 dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

@@ -269,6 +269,8 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   // the page can place each voice in space when this machine can make speech as audio
   send({ type: "tts-capable", ok: canSpeak });
   send({ type: "central", identity: CENTRAL, name: centralName(), id: CENTRAL_ID, home: homeDir });
+  // how a phone or tablet reaches this computer, for Settings: on the network, or not at all
+  send({ type: "reach", lan: onLan ? localAddresses().map((a) => `${tls ? "https" : "http"}://${a}:${PORT}`) : [] });
   changedSinceStart().then((files) => files.length && send({ type: "stale", files }), () => {});
   send({ type: "voices", counts: voices.counts(), confident: voices.confident(), relearn: voices.needsRelearning() });
   // is Claude Code installed and signed in? the page shows what is missing, if anything

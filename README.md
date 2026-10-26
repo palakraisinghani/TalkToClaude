@@ -21,23 +21,77 @@ or from your phone or iPad. On any of them it can be installed as an app.
   key there instead. It is kept in `~/.config/claudecall/anthropic-key`, readable only by you.
 - **git** (for undo)
 - On Linux, optionally **zenity** for the "Choose folder" button
-- To run from source: **Node.js 23.6 or newer** (the Mac app brings its own)
+- To run from source: **Node.js 23.6 or newer** (the downloads bring their own)
 
-## Mac app
+## Download
 
-Download `ClaudeCall-<version>-<arch>.dmg`, open it, and drag ClaudeCall to Applications. Opening
-the app does two things:
+Each version is on the GitHub **Releases** page, built by GitHub Actions (`.github/workflows/build.yml`):
+
+| | |
+|---|---|
+| Mac (Apple silicon) | `ClaudeCall-<version>-mac-apple-silicon.dmg` |
+| Linux (Intel/AMD) | `ClaudeCall-<version>-linux-x64.tar.gz` |
+| Linux (ARM) | `ClaudeCall-<version>-linux-arm64.tar.gz` |
+| Android | `ClaudeCall-<version>-android.apk` |
+| iPhone, iPad | nothing to download; see [On your phone or iPad](#on-your-phone-or-ipad) |
+
+Intel Macs aren't supported: the speech recogniser's runtime no longer ships for them. They can
+still use ClaudeCall from a browser, served by another computer.
+
+**Mac:** open the `.dmg` and drag ClaudeCall to Applications. Opening the app does two things:
 - starts ClaudeCall in the background, and keeps it running after login
 - opens it in your browser, already signed in with the access code, and ready to install as an app
 
-The first start downloads the speech model, which takes about a minute. Its data goes in
-`~/Library/Application Support/ClaudeCall`, and the speech model in `~/Library/Caches/ClaudeCall`.
+Its data goes in `~/Library/Application Support/ClaudeCall`, and the speech model in
+`~/Library/Caches/ClaudeCall`. The app isn't signed with an Apple Developer ID yet. The first time,
+right-click it and choose **Open**, or allow it in System Settings → Privacy & Security.
 
-The app is not signed with an Apple Developer ID yet. The first time, right-click it and choose
-**Open**, or allow it in System Settings → Privacy & Security.
+**Linux:** unpack the `.tar.gz` and run `./install.sh` (add `--lan` for phones on your Wi-Fi). It:
+- installs into `~/.local/share/claudecall`
+- sets ClaudeCall up as a systemd user service
+- adds it to your app menu and adds a `claudecall` command
 
-To build it yourself on a Mac: `npm run build:mac` (it writes `dist/ClaudeCall-<version>-<arch>.dmg`,
-for the Mac it's built on).
+To update, run the newer download's `install.sh`; your settings and projects are kept.
+
+**Android:** install the `.apk`; allow installing from your browser when Android asks. Enter your
+computer's address and the access code. Both are in ClaudeCall's **Settings → Phones and tablets**
+on the computer. The app then opens ClaudeCall full screen and allows the microphone. It keeps the
+screen on during a call. On a home network it asks once whether to trust your computer's own
+certificate. It's a window onto ClaudeCall on your computer, so the computer must be reachable:
+same Wi-Fi with `--lan`, or Tailscale.
+
+The first start downloads the speech model, which takes about a minute.
+
+### Releasing
+
+Push a version tag. GitHub Actions then:
+- runs the tests
+- builds the Mac and Linux downloads
+- checks each one starts, including loading speech recognition
+- publishes them as a release
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+**Android release key (optional).** Without one, each APK is signed with a throwaway key: it
+installs, but a newer version won't install over an older one. To fix that, make a key once and
+keep it safe. Losing it means users have to uninstall before updating.
+
+```sh
+keytool -genkeypair -v -keystore claudecall.jks -alias claudecall -keyalg RSA -keysize 4096 -validity 10000
+base64 -i claudecall.jks | pbcopy      # on Linux: base64 -w0 claudecall.jks
+```
+
+Then add four secrets in the repository's Settings → Secrets and variables → Actions:
+- `ANDROID_KEYSTORE_BASE64` (the copied text)
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS` (`claudecall`)
+- `ANDROID_KEY_PASSWORD`
+
+Every push to `main` and every pull request runs the same builds. The results can be downloaded
+from the run's page. To build locally: `npm run build:mac` (on a Mac) or
+`npm run build:linux -- x64|arm64` (on a Mac or Linux).
 
 ## Run from source
 

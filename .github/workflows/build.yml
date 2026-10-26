@@ -1,0 +1,155 @@
+# Builds ClaudeCall for every computer it runs on, checks each build really starts, and on a
+# version tag (v1.2.3) publishes them as a GitHub release:
+#
+#   ClaudeCall-<version>-mac-apple-silicon.dmg
+#   ClaudeCall-<version>-linux-x64.tar.gz
+#   ClaudeCall-<version>-linux-arm64.tar.gz
+#   ClaudeCall-<version>-android.apk
+#
+# iPhone and iPad need nothing built: the computer serves ClaudeCall as an installable web app.
+# To release: git tag v0.2.0 && git push origin v0.2.0
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm test
+
+  mac:
+    needs: test
+    runs-on: macos-15 # Apple silicon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci # this machine's own sharp, for the icon
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      - run: npm run build:mac
+      - name: Check the app starts
+        run: sh scripts/smoke.sh build/mac-arm64/ClaudeCall.app/Contents/Resources
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  linux:
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - name: Take the version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      # both are built here; the arm64 one is chosen with npm's --cpu, nothing is compiled
+      - run: npm run build:linux -- ${{ matrix.arch }}
+      - name: Check it starts (x64, natively)
+        if: matrix.arch == 'x64'
+        run: sh scripts/smoke.sh build/linux-x64/ClaudeCall
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.arch == 'arm64'
+      - name: Check it starts (arm64, emulated)
+        if: matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform linux/arm64 -e SMOKE_TIMEOUT=900 -v "$PWD:/w" -w /w debian:bookworm-slim \
+            sh -c "apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null && sh scripts/smoke.sh build/linux-arm64/ClaudeCall"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  android:
+    needs: test
+    runs-on: ubuntu-24.04
+    env:
+      HAS_RELEASE_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.11.1" }
+      - name: Version
+        id: v
+        run: |
+          v=$(node -p 'require("./package.json").version')
+          case "$GITHUB_REF" in refs/tags/v*) v="${GITHUB_REF_NAME#v}" ;; esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      # optional: a release key kept in the repository's secrets, so each version installs over
+      # the last (README: "Android release key"); without it the APK is debug-signed
+      - name: Release key
+        if: env.HAS_RELEASE_KEY == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - name: Build the APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle -p android assembleRelease -PappVersion=${{ steps.v.outputs.version }} --no-daemon
+      - name: Check the APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          aapt2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          "$aapt2" dump badging "$apk" | grep -E "^package:|uses-permission: name='android.permission.RECORD_AUDIO'"
+          mkdir -p dist && cp "$apk" "dist/ClaudeCall-${{ steps.v.outputs.version }}-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, linux, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          **Mac (Apple silicon):** open the .dmg and drag ClaudeCall to Applications. The first time, right-click it and choose Open.
+          **Linux:** unpack the .tar.gz for your processor and run `./install.sh` (add `--lan` for phones on your Wi-Fi).
+          **Android:** install the .apk (allow installing from your browser when asked), then enter your computer's address and access code.
+          **iPhone and iPad:** open ClaudeCall's address in Safari, then Share → Add to Home Screen.
+
+          Needs [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) on the computer; ClaudeCall helps you set it up.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "ClaudeCall $GITHUB_REF_NAME" --notes-file notes.md --generate-notes

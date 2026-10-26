@@ -1372,6 +1372,19 @@ function typeExamples() {
   typing = setTimeout(step, 900);
 }
 
+// ---------- Settings: how a phone or tablet joins ----------
+function showReach(lan) {
+  // reached already through a name a phone can use too (Tailscale, a proxy): that address works
+  const here = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? null : location.origin;
+  const url = here ?? lan.find((u) => u.startsWith("https://")) ?? null;
+  $("reachUrl").textContent = url ?? "—";
+  $("reachCode").textContent = code || "—";
+  $("reachBox").hidden = !url;
+  $("reachText").textContent = url
+    ? "Open this address on your phone or tablet (or type it into the ClaudeCall Android app) and enter the access code."
+    : "Only this computer can reach ClaudeCall right now. To join from a phone, run: npm run service install -- --lan (same Wi-Fi), or use Tailscale (see the README).";
+}
+
 // ---------- after connecting: is Claude Code installed and signed in? ----------
 let claudeSkipped = false;
 let claudePoll = 0;
@@ -1622,6 +1635,7 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "reach": showReach(m.lan ?? []); break;
     case "claude-login": claudeLogin(m); break;
     case "tts-capable": ttsCapable = !!m.ok; $("stereoRow").hidden = !ttsCapable; useStereo(); break;
     case "tts": { const w = ttsWaiting.get(m.id); ttsWaiting.delete(m.id); if (w) m.wav ? w.resolve(m.wav) : w.reject(new Error(m.error ?? "no audio")); break; }

@@ -23,3 +23,12 @@ await out(svg, 512, "icon-512.png");
 // iOS puts its own rounded corners and no transparency on it: the full-bleed square looks right
 await out(bleed, 180, "apple-touch-icon.png");
 await out(bleed, 512, "icon-maskable.png");
+
+// Android's adaptive icon: the artwork alone on a transparent square, inside the middle two thirds
+// it keeps whatever shape it crops to; the orange behind it is the icon's background colour
+const foreground = bleed
+  .replace(/<rect x="0" y="0" width="64" height="64" rx="0" fill="url\(#bg\)"\/>/, "")
+  .replace('scale(.78)', 'scale(.6)');
+await sharp(Buffer.from(foreground), { density: 72 * (432 / 64) * 2 }).resize(432, 432).png()
+  .toFile(join(import.meta.dirname, "..", "android", "app", "src", "main", "res", "mipmap-xxxhdpi", "ic_launcher_foreground.png"));
+console.log("android ic_launcher_foreground.png");
