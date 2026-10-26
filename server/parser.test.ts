@@ -116,6 +116,18 @@ test("a tag with a long brief is an action, not text (briefs over 600 characters
   assert.equal(a!.kind === "action" && a!.body.length, brief.trim().length);
 });
 
+test("a forgotten closing tag: the reply's end, or speech after a real brief, ends the brief", () => {
+  // the exact reply that once left an agent unmade: the brief runs to the end, no </new>
+  const p = new ReplyParser();
+  const evs = all(p, [`<say>Setting up Pip now.</say>\n\n<new name="Pip" folder="desktop-pet">${brief}`]);
+  const a = evs.find((e) => e.kind === "action");
+  assert.ok(a && a.kind === "action" && a.name === "new" && a.attrs.name === "Pip" && a.body === brief.trim());
+  const q = new ReplyParser();
+  const evs2 = all(q, [`<delegate to="pip">Add a beanbag the cat sleeps on, and insects to chase.\n<say>Passed that on.</say>`]);
+  assert.ok(evs2.some((e) => e.kind === "action" && e.name === "delegate" && e.body.startsWith("Add a beanbag")));
+  assert.ok(evs2.some((e) => e.kind === "sentence" && e.text === "Passed that on."));
+});
+
 test("an interrupted reply says which tag it was in the middle of", () => {
   const p = new ReplyParser();
   p.feed(`<say>Sure.</say><new name="Juno" folder="cat">make a cat that`);

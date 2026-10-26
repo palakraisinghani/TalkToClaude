@@ -22,6 +22,8 @@ export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "
 const ACTION_MAX = 600;
 /** A body longer than this without its closing tag is not a brief but runaway text. */
 const BODY_MAX = 40_000;
+/** Shorter than this before speech starts, an unclosed tag was prose that mentioned one. */
+const MIN_BRIEF = 40;
 // long enough to hold back the start of the longest tag name, "<question" or "<delegate "
 const HOLD = 12;
 
@@ -138,10 +140,18 @@ export class ReplyParser {
       const close = `</${name}>`;
       const i = this.buf.indexOf(close, end);
       if (i < 0) {
-        // speech starting first means it was prose that mentioned a tag, not a tag (agents close
-        // theirs: measured on real calls, 36 of 37); otherwise wait for the close, however long
+        // Speech starting before any closing tag: a forgotten close after a real brief (agents do
+        // forget it), so the brief ends where the speech begins — or, with next to nothing in
+        // between, prose that only mentioned a tag ("Next I <open path=…> it."), left as text.
         const speech = this.buf.indexOf("<say>", end);
-        return speech >= 0 || this.buf.length - end > BODY_MAX ? notAnAction(end) : null;
+        if (speech >= 0) {
+          const brief = this.buf.slice(end, speech).trim();
+          if (brief.length < MIN_BRIEF) return notAnAction(end);
+          const text = this.buf.slice(0, speech);
+          this.buf = this.buf.slice(speech);
+          return { kind: "action", name, attrs: attrs(head), body: brief, text };
+        }
+        return this.buf.length - end > BODY_MAX ? notAnAction(end) : null;
       }
       body = this.buf.slice(end, i).trim();
       end = i + close.length;
@@ -166,6 +176,15 @@ export class ReplyParser {
 
   end(): ParsedEvent[] {
     const out: ParsedEvent[] = [];
+    // The reply ended inside an action tag: its closing tag forgotten. Nothing came after it that
+    // it could be confused with, so it is carried out with the rest as its body. (Ada ending a
+    // reply on "<new name=…>brief" with no "</new>" is how an agent once failed to appear.)
+    const open = this.section === "none" ? this.unfinished() : null;
+    if (open) {
+      const gt = this.buf.indexOf(">");
+      out.push({ kind: "action", name: open.name, attrs: open.attrs, body: this.buf.slice(gt + 1).trim(), text: this.buf });
+      this.buf = "";
+    }
     const tail = (this.pending + this.buf).trim();
     if ((this.section === "say" || this.section === "question") && tail) {
       out.push({ kind: "sentence", text: tail });
