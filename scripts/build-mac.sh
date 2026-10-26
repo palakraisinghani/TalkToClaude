@@ -73,6 +73,7 @@ mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 rm -f "$OUT"
+# LZMA (ULMO): the smallest image macOS can open (10.15 and later)
 # newer macOS has diskutil image (hdiutil create is deprecated there); hdiutil is known to fail
 # now and then with "Resource busy" while Spotlight looks at the new folder, so it gets retries
 # a failed attempt can leave the half-made image attached: let it go before the next try
@@ -83,11 +84,11 @@ let_go() {
 }
 made=0
 if diskutil image create from --help >/dev/null 2>&1; then
-  diskutil image create from --format UDZO --volumeName ClaudeCall "$STAGE" "$OUT" >/dev/null 2>&1 && made=1 || let_go
+  diskutil image create from --format ULMO --volumeName ClaudeCall "$STAGE" "$OUT" >/dev/null 2>&1 && made=1 || let_go
 fi
 for try in 1 2 3 4 5; do
   [ "$made" = 1 ] && break
-  hdiutil create -quiet -volname ClaudeCall -srcfolder "$STAGE" -ov -format UDZO "$OUT" 2>/dev/null && made=1 && break
+  hdiutil create -quiet -volname ClaudeCall -srcfolder "$STAGE" -ov -format ULMO "$OUT" 2>/dev/null && made=1 && break
   let_go
   sleep 3
 done

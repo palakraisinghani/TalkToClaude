@@ -13,7 +13,8 @@
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-CONF="$HOME/.config/claudecall"
+# the Mac app keeps its own settings (CLAUDECALL_CONF), apart from a copy run from source
+CONF=${CLAUDECALL_CONF:-$HOME/.config/claudecall}
 ENV_FILE="$CONF/env"
 LABEL=${CLAUDECALL_LABEL:-com.claudecall}
 UNIT=${CLAUDECALL_LABEL:-claudecall}.service
@@ -31,8 +32,18 @@ node_bin() {
   command -v node
 }
 
+# the first free port from $1 on, so a copy already running elsewhere is not in the way
+free_port() {
+  p=$1
+  while [ "$p" -lt $(($1 + 20)) ]; do
+    "$(node_bin)" -e 'const s = require("net").createServer(); s.once("error", () => process.exit(1)); s.listen(+process.argv[1], () => s.close(() => process.exit(0)))' "$p" 2>/dev/null && { echo "$p"; return; }
+    p=$((p + 1))
+  done
+  echo "$1"
+}
+
 write_env() {
-  lan=$1 port=$2
+  lan=$1 port=$(free_port "$2")
   mkdir -p "$CONF"
   if [ -f "$ENV_FILE" ]; then
     echo "Keeping your settings in $ENV_FILE"
@@ -53,7 +64,8 @@ write_env() {
     echo "BUDDY_TOKEN=$token"
     echo "BUDDY_HOST=$host"
     echo "PORT=$port"
-    echo "BUDDY_HOME=\"$HOME/buddy-home\""
+    echo "BUDDY_HOME=\"${BUDDY_HOME:-$HOME/buddy-home}\""
+    echo "CLAUDECALL_CONF=\"$CONF\""
     [ -n "${BUDDY_DATA:-}" ] && echo "BUDDY_DATA=\"$BUDDY_DATA\""
     [ -n "${BUDDY_MODEL_CACHE:-}" ] && echo "BUDDY_MODEL_CACHE=\"$BUDDY_MODEL_CACHE\""
     # the service does not get your shell's PATH: claude, git and node must be findable
@@ -136,7 +148,7 @@ cmd=${1:-}
 [ $# -gt 0 ] && shift
 case "$cmd" in
   install)
-    lan=0 port=3000
+    lan=0 port=${CLAUDECALL_PORT:-3000}
     while [ $# -gt 0 ]; do
       case "$1" in
         --lan) lan=1 ;;

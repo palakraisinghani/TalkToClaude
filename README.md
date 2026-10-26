@@ -18,7 +18,7 @@ or from your phone or iPad. On any of them it can be installed as an app.
   You don't have to do this first. After you connect, ClaudeCall checks for Claude Code. If it's
   missing or signed out, it shows these steps. On the computer itself, a button opens Claude Code's
   own sign-in. ClaudeCall never sees your password or token. You can also paste an Anthropic API
-  key there instead. It is kept in `~/.config/claudecall/anthropic-key`, readable only by you.
+  key there instead. It is kept next to ClaudeCall's settings, readable only by you.
 - **git** (for undo)
 - On Linux, optionally **zenity** for the "Choose folder" button
 - To run from source: **Node.js 23.6 or newer** (the downloads bring their own)
@@ -30,8 +30,8 @@ Each version is on the GitHub **Releases** page, built by GitHub Actions (`.gith
 | | |
 |---|---|
 | Mac (Apple silicon) | `ClaudeCall-<version>-mac-apple-silicon.dmg` |
-| Linux (Intel/AMD) | `ClaudeCall-<version>-linux-x64.tar.gz` |
-| Linux (ARM) | `ClaudeCall-<version>-linux-arm64.tar.gz` |
+| Linux (Intel/AMD) | `ClaudeCall-<version>-linux-x64.tar.xz` |
+| Linux (ARM) | `ClaudeCall-<version>-linux-arm64.tar.xz` |
 | Android | `ClaudeCall-<version>-android.apk` |
 | iPhone, iPad | nothing to download; see [On your phone or iPad](#on-your-phone-or-ipad) |
 
@@ -42,12 +42,14 @@ still use ClaudeCall from a browser, served by another computer.
 - starts ClaudeCall in the background, and keeps it running after login
 - opens it in your browser, already signed in with the access code, and ready to install as an app
 
-Its data goes in `~/Library/Application Support/ClaudeCall`, and the speech model in
-`~/Library/Caches/ClaudeCall`. The app isn't signed with an Apple Developer ID yet. The first time,
+It starts clean: just Ada, no team yet. The projects she sets up go in `~/ClaudeCall`. Its
+settings and data go in `~/Library/Application Support/ClaudeCall`, and the speech model in
+`~/Library/Caches/ClaudeCall`. It runs on port 3747, so a copy run from source on 3000 doesn't get
+in its way. The app isn't signed with an Apple Developer ID yet. The first time,
 right-click it and choose **Open**, or allow it in System Settings → Privacy & Security.
 
-**Linux:** unpack the `.tar.gz` and run `./install.sh` (add `--lan` for phones on your Wi-Fi). It:
-- installs into `~/.local/share/claudecall`
+**Linux:** unpack the `.tar.xz` (`tar -xf`) and run `./install.sh` (add `--lan` for phones on your Wi-Fi). It:
+- installs into `~/.local/share/claudecall`, with projects in `~/ClaudeCall` and port 3747
 - sets ClaudeCall up as a systemd user service
 - adds it to your app menu and adds a `claudecall` command
 

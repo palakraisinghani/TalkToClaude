@@ -19,6 +19,9 @@ ln -sfn "$DEST" "$SHARE/current"
 export CLAUDECALL_NODE="$SHARE/current/node/bin/node"
 export BUDDY_DATA="$SHARE/data"
 export BUDDY_MODEL_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/claudecall/models"
+# a fresh home for the team, its own port
+export BUDDY_HOME="$HOME/ClaudeCall"
+export CLAUDECALL_PORT=3747
 sh "$SHARE/current/app/scripts/service.sh" install "$@"
 systemctl --user restart "${CLAUDECALL_LABEL:-claudecall}.service" 2>/dev/null || true
 

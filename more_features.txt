@@ -1,0 +1,3 @@
+1. Add more visibility and accessibility to the agents. When I create a new project I should be asked to enter a location where in the root directory of the foler should be placed and the name of the project. If the project already exists then the location in absolute to the root of that project. People should also be given the option of adding a project description if they want. 
+2. after a long conversation in an audo only mode when the person comes back to AUDIO + visual mode they can chose to take a tour - of all the work that was done when they in purely audi mode. This will get created parallelly at times of silence and dormancy when in audio mode. when a tour is taken, it is automatically reset to null and a new conversation builds again from there. 
+3. 

@@ -20,7 +20,7 @@ rm -rf "$DEST" && mkdir -p "$DEST/app" "$DEST/node/bin"
 
 # ---------- the app's own files, as tracked in git ----------
 (cd "$ROOT" && git ls-files -co --exclude-standard -- server web skill scripts package.json package-lock.json README.md \
-  | grep -vE '\.test\.(ts|js)$|^scripts/(build-|bundle|eval-|make-icons)' | tar -cf - -T -) | tar -xf - -C "$DEST/app"
+  | grep -vE '\.test\.(ts|js)$|^scripts/(build-|bundle|eval-|make-icons|prune)' | tar -cf - -T -) | tar -xf - -C "$DEST/app"
 
 # ---------- Node for that platform ----------
 DL=$(mktemp -d)
@@ -48,7 +48,8 @@ for d in "$NM"/onnxruntime-node/bin/napi-v*/"$OS"/*; do [ "$(basename "$d")" = "
 for d in "$NM"/@img/sharp-*; do
   case "$(basename "$d")" in *-"$OS"-"$ARCH" | sharp-libvips-"$OS"-"$ARCH") ;; *) rm -rf "$d" ;; esac
 done
-find "$NM" -name "*.map" -type f -delete
+# then only what the server imports and the page loads (see prune.mjs)
+node "$ROOT/scripts/prune.mjs" "$DEST/app"
 ls "$NM"/@img >/dev/null 2>&1 && [ -n "$(ls "$NM"/@img | grep -E "^sharp-$OS-$ARCH$")" ] || { echo "sharp for $OS-$ARCH is missing" >&2; exit 1; }
 [ -d "$NM/onnxruntime-node/bin/napi-v6/$OS/$ARCH" ] || { echo "onnxruntime for $OS-$ARCH is missing" >&2; exit 1; }
 echo "Bundled $OS-$ARCH: $(du -sh "$DEST" | awk '{print $1}')"

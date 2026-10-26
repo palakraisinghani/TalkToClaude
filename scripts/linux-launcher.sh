@@ -4,7 +4,7 @@
 CONF="$HOME/.config/claudecall"
 UNIT=${CLAUDECALL_LABEL:-claudecall}.service
 get() { sed -n "s/^$1=//p" "$CONF/env" 2>/dev/null | tail -1 | sed 's/^"\(.*\)"$/\1/'; }
-PORT=$(get PORT); PORT=${PORT:-3000}
+PORT=$(get PORT); PORT=${PORT:-3747}
 SCHEME=http
 [ "$(get BUDDY_HOST)" = 0.0.0.0 ] && SCHEME=https
 up() { curl -ksf -o /dev/null "$SCHEME://localhost:$PORT/"; }

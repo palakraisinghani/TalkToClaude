@@ -8,8 +8,9 @@
 RES=$(cd "$(dirname "$0")/../Resources" && pwd)
 APPDIR="$RES/app"
 LOG="$HOME/Library/Logs/ClaudeCall-launcher.log"
-CONF="$HOME/.config/claudecall"
 SUPPORT="$HOME/Library/Application Support/ClaudeCall"
+# the app's own settings and home: a clean start, apart from any copy run from source
+CONF="$SUPPORT"
 LABEL=${CLAUDECALL_LABEL:-com.claudecall}
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 mkdir -p "$(dirname "$LOG")" "$CONF" "$SUPPORT"
@@ -26,12 +27,15 @@ LOGIN_PATH=$("${SHELL:-/bin/zsh}" -lic 'printf %s "$PATH"' 2>/dev/null | tail -n
 export PATH="${LOGIN_PATH:+$LOGIN_PATH:}$PATH:$HOME/.local/bin:$HOME/.claude/local:/opt/homebrew/bin:/usr/local/bin"
 
 export CLAUDECALL_NODE="$RES/node/bin/node"
+export CLAUDECALL_CONF="$CONF"
+export CLAUDECALL_PORT=3747
+export BUDDY_HOME="$HOME/ClaudeCall"
 export BUDDY_DATA="$SUPPORT"
 export BUDDY_MODEL_CACHE="$HOME/Library/Caches/ClaudeCall/models"
 
 # installed from this copy, at this version? if not, (re)install: settings and the code are kept
 VERSION=$(cat "$RES/version")
-if ! grep -q "$CLAUDECALL_NODE" "$PLIST" 2>/dev/null || [ "$(cat "$CONF/app-version" 2>/dev/null)" != "$VERSION" ]; then
+if ! grep -q "$CLAUDECALL_NODE" "$PLIST" 2>/dev/null || ! grep -qF "$CONF/env" "$PLIST" 2>/dev/null || [ "$(cat "$CONF/app-version" 2>/dev/null)" != "$VERSION" ]; then
   echo "installing the service from $RES"
   if ! sh "$APPDIR/scripts/service.sh" install; then
     alert "ClaudeCall could not start. Details are in ~/Library/Logs/ClaudeCall-launcher.log"
@@ -41,7 +45,7 @@ if ! grep -q "$CLAUDECALL_NODE" "$PLIST" 2>/dev/null || [ "$(cat "$CONF/app-vers
 fi
 
 get() { sed -n "s/^$1=//p" "$CONF/env" | tail -1 | sed 's/^"\(.*\)"$/\1/'; }
-PORT=$(get PORT); PORT=${PORT:-3000}
+PORT=$(get PORT); PORT=${PORT:-3747}
 SCHEME=http
 [ "$(get BUDDY_HOST)" = 0.0.0.0 ] && SCHEME=https
 

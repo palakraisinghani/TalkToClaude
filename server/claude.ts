@@ -22,7 +22,7 @@ export interface ClaudeStatus {
 }
 
 /** Where an API key typed into ClaudeCall is kept: readable by this user only. */
-export const KEY_FILE = join(homedir(), ".config", "claudecall", "anthropic-key");
+export const KEY_FILE = join(process.env.CLAUDECALL_CONF ?? join(homedir(), ".config", "claudecall"), "anthropic-key");
 
 export async function claudeStatus(): Promise<ClaudeStatus> {
   const savedKey = !!process.env.CLAUDECALL_SAVED_KEY;
