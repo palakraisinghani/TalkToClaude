@@ -20,7 +20,7 @@ rm -rf "$DEST" && mkdir -p "$DEST/app" "$DEST/node/bin"
 
 # ---------- the app's own files, as tracked in git ----------
 (cd "$ROOT" && git ls-files -co --exclude-standard -- server web skill scripts package.json package-lock.json README.md \
-  | grep -vE '\.test\.(ts|js)$|^scripts/(build-|bundle|eval-|make-icons|make-deb|prune)' | tar -cf - -T -) | tar -xf - -C "$DEST/app"
+  | grep -vE '\.test\.(ts|js)$|^server/.*\.md$|^scripts/(build-|bundle|eval-|make-icons|make-deb|prune)' | tar -cf - -T -) | tar -xf - -C "$DEST/app"
 
 # ---------- Node for that platform ----------
 DL=$(mktemp -d)
