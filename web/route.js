@@ -46,6 +46,8 @@ const LOCAL_KINDS = [
   [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [MORE, "more"], [HOLD, "hold"], [UNHOLD, "unhold"], [DONE, "done"], [BACK, "back"], [TEACH, "teach"],
 ];
 
+/** Words before a name that make it part of the sentence, not someone being called. */
+const NOT_CALLED = /^(to|with|for|from|about|and|or|ask|tell|than|like|of|at|by|call|named|called|is|was)$/;
 const TAKE = /\b(?:take me (?:over )?to|put me (?:through|over) to|switch me (?:over )?to|connect me (?:to|with)|let me (?:talk|speak) (?:to|with)|i (?:want|need|would like|'?d like) to (?:talk|speak) (?:to|with)|can i (?:talk|speak) (?:to|with)|go back to|back over to|over to) (\w+)\b/;
 const GREETING = /^(?:(?:hi|hey|hello|okay|ok|okey|okie|so|um|uh|oh|yo|and|sorry|excuse me|right)\s+)+/;
 const GREETING_RAW = /^\W*(?:(?:hi|hey|hello|okay|ok|okey|okie|so|um|uh|oh|yo|and|sorry|excuse me|right)\b[\s,.!-]*)+/i;
@@ -335,6 +337,14 @@ export function route(raw, projects, { waiting = null } = {}) {
   if (bare) {
     const target = findBare(projects, bare);
     if (target) return { kind: "focus", project: target.id };
+  }
+
+  // "can you run the tests, Juno?" — a name closing the sentence after a comma is said to them.
+  // Not "send it to Juno" or "tell Ada about it": there the name is part of the sentence. Exact
+  // names only, and never a name in the middle of what was said.
+  if (words.length >= 3 && /,\s*[^\s,.!?]+[.!?]*\s*$/.test(raw.trim()) && !NOT_CALLED.test(words[words.length - 2])) {
+    const target = findExact(projects, words[words.length - 1]);
+    if (target) return { kind: "address", project: target.id, text: raw.trim().replace(/,\s*[^\s,.!?]+([.!?]*)\s*$/, "$1").trim() };
   }
 
   // "ada, run the tests" — only an exact name redirects an instruction

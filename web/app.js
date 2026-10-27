@@ -3,7 +3,7 @@ import { Earcons } from "./earcon.js";
 import { Central } from "./central.js";
 import { createVadListener, createChromeListener } from "./listen.js";
 import { esc, renderMarkdown } from "./markdown.js";
-import { route, soundsLike, afterName, LOCAL, calledBy, confusable, spokenName } from "./route.js";
+import { route, soundsLike, LOCAL, calledBy, confusable, spokenName } from "./route.js";
 import { isNoise, MIN_VOICED_MS } from "./noise.js";
 import { StereoEngine } from "./stereo.js";
 import { DEFAULT_MODEL, MODELS, modelChoices, modelLabel } from "./models.js";
@@ -34,6 +34,10 @@ let listener = null;
 // Every agent on the call, as the server reports it: the assistant first, then the team.
 let projects = [];
 let focusedId = null;
+// Who has the floor as the server last said, and a switch asked for here that it has not confirmed
+// yet. The page moves at once — the circle, and where your next words go — instead of waiting for
+// the server's word; until then, an older roster still in flight cannot move it back.
+let confirmedFocus = null, wantFocus = null, wantAt = 0;
 let centralId = "ada", centralName = "Ada", centralIdentity = null, homeDir = "";
 let currentTurn = 0; // the latest turn of the agent on the line
 // Turns of the agent on the line whose speech is played. Usually just the latest; but something
@@ -122,7 +126,10 @@ function draw() {
   else if (working) s = "thinking";
   else s = muted ? "muted" : "listening";
   callEl.dataset.state = s === "muted" ? "listening" : s;
-  $("stateLabel").textContent = { hearing: "hearing you", speaking: talkingId && talkingId !== focusedId ? `${nameOf(talkingId)} speaking` : "speaking", thinking: "working", listening: "listening", paused: "paused", asleep: "asleep", muted: "muted" }[s];
+  // who: the one your words go to, and the one whose voice you hear, which can differ (the
+  // assistant reading out news while Juno has the floor)
+  const floorName = project(focusedId)?.name ?? centralName;
+  $("stateLabel").textContent = { hearing: `${floorName} is hearing you`, speaking: `${talkingId ? nameOf(talkingId) : floorName} is speaking`, thinking: `${floorName} is working`, listening: `${floorName} is listening`, paused: "paused", asleep: "asleep", muted: "muted" }[s];
   document.body.classList.toggle("is-paused", userPaused);
   document.body.classList.toggle("oncall", onCall);
   showIcon($("pauseBtn"), userPaused ? "play" : "pause");
@@ -1350,7 +1357,12 @@ function focusOn(id) {
   if (!onCall || !id) return;
   voice.clear();
   userPaused = false;
+  // the circle moves now, and whatever you say next goes to them, not whoever had the floor
+  wantFocus = id;
+  wantAt = Date.now();
+  focusedId = id;
   send({ type: "focus", project: id });
+  render();
 }
 
 /**
@@ -1610,9 +1622,12 @@ function onServer(m) {
       const first = !rosterSeen;
       rosterSeen = true;
       projects = m.projects;
-      const changed = focusedId !== m.focused;
-      const left = focusedId;
-      focusedId = m.focused;
+      // a roster sent before the server took the switch asked for here: not where the floor is now
+      const stale = !!wantFocus && m.focused !== wantFocus && Date.now() - wantAt < 2500;
+      if (wantFocus && (m.focused === wantFocus || !stale)) wantFocus = null;
+      const changed = !stale && confirmedFocus !== m.focused;
+      const left = confirmedFocus;
+      if (!stale) { confirmedFocus = m.focused; focusedId = m.focused; }
       // a detour to the assistant remembers who you came from; going to anyone else ends it
       const returning = changed && !!left && left === centralId && m.focused === cameFrom;
       if (changed) cameFrom = m.focused === centralId && left && left !== centralId ? left : null;
@@ -1801,27 +1816,23 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
   // often writes a name as something else entirely ("do" for Juno, "photo" for Otto). Only used
   // when the words do not already name someone, answer a question, or ask for a command. A strong
   // match is trusted on its sound; a weak one only if the words hold something that sounds like
-  // the name. Said alone, it moves the line; at the start of a sentence, the rest goes to them.
+  // the name. Only a name said on its own moves the line ("Juno", "hey Juno"). Within a sentence
+  // its sound proves nothing: "add a effect" sounds like "Ada effect", and used to switch to Ada.
   if (!typed && match && project(match.project)) {
     const words = norm(raw).split(" ").filter(Boolean);
+    const alone = words.length === 1 || (words.length === 2 && /^(hey|hi|hello|okay|ok|oh|um|please|yo)$/.test(words[0]));
     const r = words.length ? route(raw, projects) : { kind: "ask" };
     const p = project(match.project);
     const backed = match.strength !== "weak" || soundsLike(raw, p.name, { accent }) || (p.aliases ?? []).some((a) => soundsLike(raw, a, { accent }));
     if (r.kind === "ask" && backed && attention.classify(raw) === null) {
       const said = raw.trim();
-      if (words.length <= 3) {
+      if (alone) {
         showYou(said || "…");
         feedNote(`Knew your voice saying ${p.name}${said ? ` (the words came out as “${said}”)` : ""}.`, p.id);
         lastActivity = Date.now();
         if (p.id !== focusedId) focusOn(p.id);
         else render();
         return;
-      }
-      // a longer line that opens with the name: the misheard name is dropped and the rest is theirs
-      const rest = (match.startMs ?? Infinity) <= 1500 ? afterName(said) : "";
-      if (rest) {
-        feedNote(`Knew your voice saying ${p.name} at the start (the words came out as “${said}”).`, p.id);
-        raw = `${p.name}, ${rest}`;
       }
     }
   }
@@ -2368,7 +2379,7 @@ function endCall(message) {
   send({ type: "call-end" });
   working = false;
   projects = [];
-  focusedId = null;
+  focusedId = confirmedFocus = wantFocus = null;
   activity.clear();
   pipeline.clear();
   $("callBtn").classList.remove("end");

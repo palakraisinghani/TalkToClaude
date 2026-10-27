@@ -217,3 +217,17 @@ test("teaching one name by voice", () => {
   for (const s of ["learn how I say Juno", "teach Ada's name", "teach Ada again", "teach Ada"]) assert.deepEqual(route(s, P), { kind: "local", name: "teach" }, s);
   assert.equal(route("learn python", P).kind, "ask");
 });
+
+test("a name switches only when called: alone, opening the sentence, or closing it after a comma", () => {
+  const P = [{ id: "ada", name: "Ada", central: true }, { id: "juno", name: "Juno" }, { id: "kiwi", name: "Kiwi" }];
+  // sounds like a name in the middle of a sentence: stays with whoever has the line
+  assert.equal(route("Add a effect for the button.", P).kind, "ask");
+  assert.equal(route("The data from Ada is wrong", P).kind, "ask");
+  assert.equal(route("I think we should ask Ada about it", P).kind, "ask");
+  assert.equal(route("Send it to Juno.", P).kind, "ask");
+  // called
+  assert.deepEqual(route("Ada", P), { kind: "focus", project: "ada" });
+  assert.deepEqual(route("Ada, start a project for Diwali.", P), { kind: "address", project: "ada", text: "start a project for Diwali." });
+  assert.deepEqual(route("Can you run the tests, Juno?", P), { kind: "address", project: "juno", text: "Can you run the tests?" });
+  assert.deepEqual(route("Make the lights brighter, Kiwi.", P), { kind: "address", project: "kiwi", text: "Make the lights brighter." });
+});

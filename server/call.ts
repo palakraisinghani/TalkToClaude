@@ -138,7 +138,7 @@ class Project {
   parserFor(turn: number): ReplyParser {
     // only the central agent runs the call; any agent may hand the lead over to someone else
     // only the central agent runs the call; any agent may hand the lead over, or change its own voice
-    return this.parsers.get(turn) ?? this.parsers.set(turn, new ReplyParser({ actions: this.central ? undefined : ["handoff", "voice"] })).get(turn)!;
+    return this.parsers.get(turn) ?? this.parsers.set(turn, new ReplyParser({ actions: this.central ? undefined : ["handoff", "voice", "call"] })).get(turn)!;
   }
 }
 
@@ -1137,6 +1137,8 @@ export class Call {
       `Ordinary work goes ahead on its own. Anything the safety check judges risky pauses you until the lead answers; ${centralName()} brings it to them. Just wait, and carry on when it goes through. If the answer is no, carry on without it, or stop and say what is left undone. Never try to work around a refusal.`,
       `If your folder has a \`BRIEF.md\`, it is your mission: read it when you start, and keep to it.`,
       `If the lead asks you to sound different — slower, faster, louder, quieter, another voice, the other side — change it yourself with \`<voice speed="slower"/>\` (attributes: \`name\` a system voice such as Daniel or Karen, \`speed\` a number around 1 or faster/slower, \`volume\` 0–1 or louder/quieter, \`side\` left, right or centre). It changes only your own voice, from your next sentence.`,
+      `If the lead asks you to pause the call, put it on hold, mute them or hang up, do it with \`<call do="pause"/>\` (or \`hold\`, \`mute\`, \`end\`), after one short \`<say>\` saying what will happen and how they come back ("Muting you now. Tap the microphone to unmute."). Only when they ask, and only while you are on the line. Your work carries on either way.`,
+      `When what to make is still open — "build something for Diwali", "make me an app" — do not pick for them and start. Ask two or three short questions first (what kind of thing, who it is for, anything it must have), one \`<say>\` each, then wait for the answers. Once it is clear, say in a sentence what you will build and start. Small, specific requests ("fix the login bug", "add a dark mode") need no questions: just do them.`,
       ``,
       `## The canvas`,
       `Whatever you put in \`<screen>\` appears on a canvas beside the call. To show a picture, GIF or video, write \`![what it is](path/or/link)\` with the file's path (relative to your folder, or absolute) or a web link: the canvas reads the file itself. Never paste an image as base64 or a \`data:\` URL; it gets cut off and never shows.`,
@@ -1215,6 +1217,11 @@ export class Call {
         else if (e.name === "voice") {
           // an agent may change how it sounds — its own voice only, never anyone else's
           this.setSound(id, voicePatch(e.attrs, p.config.identity));
+          this.emit(p, { type: "action", project: id, turn, name: e.name, attrs: e.attrs, body: e.body });
+        } else if (e.name === "call") {
+          // the agent you are talking to can pause, hold, mute or end the call when you ask it to;
+          // one working in the background cannot, so nobody is cut off by someone they can't hear
+          if (this.focused === id && /^(end|hold|pause|mute)$/.test(e.attrs.do ?? "")) this.opts.send({ type: "call-control", do: e.attrs.do, project: id });
           this.emit(p, { type: "action", project: id, turn, name: e.name, attrs: e.attrs, body: e.body });
         } else if (e.name === "handoff") {
           // any agent can put the lead through to someone else; it happens when its turn ends

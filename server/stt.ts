@@ -67,21 +67,52 @@ export class WhisperSTT implements STT {
       const cfg = model.generation_config;
       const special = (t: string) => tokenizer.encode(t, { add_special_tokens: false })[0];
       const names = [...new Set((opts.names ?? []).filter(Boolean))].slice(0, 24);
-      const prompt = names.length ? [special("<|startofprev|>"), ...tokenizer.encode(` ${names.join(", ")}.`, { add_special_tokens: false })] : [];
       const lang = cfg.is_multilingual ? [special("<|en|>"), special("<|transcribe|>")] : [];
-      const prefix = [...prompt, cfg.decoder_start_token_id, ...lang, cfg.no_timestamps_token_id];
-      const clip = tighten(audio);
-      const { input_features } = await processor(clip);
-      // no more words than could fit in the clip: a short "Kai" cannot be forty words, and capping
-      // it stops Whisper's habit of looping ("I mean, I mean, …") from costing seconds
-      const seconds = clip.length / RATE;
-      const out = await model.generate({ inputs: input_features, decoder_input_ids: [prefix], max_new_tokens: Math.min(160, Math.round(seconds * 9) + 10) });
-      const ids = (out.tolist ? out.tolist()[0] : out[0]).map(Number).slice(prefix.length);
-      return unhallucinate(tokenizer.decode(ids, { skip_special_tokens: true }).trim(), names, seconds);
+      // Whisper hears 30 seconds at a time and silently drops the rest: a long prompt came out cut
+      // short. A longer clip is split between words, and each piece is heard with the end of the
+      // one before as its context, so a sentence running across the split still reads right.
+      let said = "";
+      for (const piece of splitLong(tighten(audio))) {
+        const context = `${names.length ? ` ${names.join(", ")}.` : ""}${said ? ` ${said.slice(-200)}` : ""}`;
+        const prompt = context ? [special("<|startofprev|>"), ...tokenizer.encode(context, { add_special_tokens: false })] : [];
+        const prefix = [...prompt, cfg.decoder_start_token_id, ...lang, cfg.no_timestamps_token_id];
+        const { input_features } = await processor(piece);
+        // no more words than could fit in the clip: a short "Kai" cannot be forty words, and capping
+        // it stops Whisper's habit of looping ("I mean, I mean, …") from costing seconds
+        const seconds = piece.length / RATE;
+        const out = await model.generate({ inputs: input_features, decoder_input_ids: [prefix], max_new_tokens: Math.min(220, Math.round(seconds * 9) + 10) });
+        const ids = (out.tolist ? out.tolist()[0] : out[0]).map(Number).slice(prefix.length);
+        const text = unhallucinate(tokenizer.decode(ids, { skip_special_tokens: true }).trim(), names, seconds);
+        if (text) said = said ? `${said} ${text}` : text;
+      }
+      return said;
     });
     this.chain = job.catch(() => {});
     return job;
   }
+}
+
+/**
+ * A clip cut into pieces Whisper can hear whole (it listens to 30 seconds at most), each cut made
+ * at the quietest moment in the last few seconds before the limit — between words, not through one.
+ */
+export function splitLong(audio: Float32Array, maxSeconds = 28): Float32Array[] {
+  const max = Math.floor(maxSeconds * RATE), F = 400;
+  const out: Float32Array[] = [];
+  let start = 0;
+  while (audio.length - start > max) {
+    // the quietest 25 ms in the last 6 seconds of this window
+    let cut = start + max, best = Infinity;
+    for (let f = start + max - 6 * RATE; f + F <= start + max; f += F) {
+      let e = 0;
+      for (let i = f; i < f + F; i++) e += audio[i] * audio[i];
+      if (e < best) { best = e; cut = f + F / 2; }
+    }
+    out.push(audio.subarray(start, cut));
+    start = cut;
+  }
+  out.push(audio.subarray(start));
+  return out;
 }
 
 /** Stock phrases Whisper produces from noise, learned from subtitles; never something said here. */

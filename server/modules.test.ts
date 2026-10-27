@@ -53,3 +53,16 @@ test("the installed app's manifest is valid and names files that exist", async (
   await access(join(web, "apple-touch-icon.png"));
   await access(join(web, "offline.html"));
 });
+
+test("a clip longer than Whisper hears at once is split, between words, into pieces it can hear whole", async () => {
+  const { splitLong } = await import("./stt.ts");
+  const R = 16000;
+  // 70 s of "speech" with a quiet gap at 25 s and at 52 s: the cuts land in the gaps
+  const a = new Float32Array(70 * R).map((_, i) => 0.3 * Math.sin(i / 7));
+  for (const s of [25, 52]) a.fill(0, s * R, s * R + 0.3 * R);
+  const pieces = splitLong(a);
+  assert.ok(pieces.every((p) => p.length <= 28 * R), "a piece is longer than 28 s");
+  assert.equal(pieces.reduce((n, p) => n + p.length, 0), a.length, "audio lost or doubled at a cut");
+  assert.ok(Math.abs(pieces[0].length / R - 25.15) < 0.2, `first cut at ${pieces[0].length / R}s, not in the gap`);
+  assert.deepEqual(splitLong(new Float32Array(10 * R)).length, 1);
+});
