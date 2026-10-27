@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ClaudeCall · Lead your Claude team by voice</title>
+<meta name="description" content="Talk to Ada, your assistant. She sets up projects, hands out the work and tells you who needs you, while each Claude Code agent works in its own folder. For Mac and Linux.">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#d77757">
+<meta property="og:title" content="ClaudeCall · Lead your Claude team by voice">
+<meta property="og:description" content="A voice call with your Claude Code agents. For Mac and Linux.">
+<style>
+  :root { --bg: #f5f4ed; --card: #fff; --ink: #141413; --muted: #6b6a64; --faint: #9c9a92; --line: #e6e3d8; --accent: #d77757; --accent-ink: #b85c3d; --soft: rgb(215 119 87 / .14); color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1f1e1b; --card: #2a2925; --ink: #f0eee6; --muted: #a8a69e; --faint: #7d7b74; --line: #3a3934; --accent-ink: #e9a085; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+  .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .bg span { position: absolute; width: 46vmax; height: 46vmax; border-radius: 50%; filter: blur(70px); opacity: .4; animation: drift 24s ease-in-out infinite alternate; }
+  .bg .a { background: #f2b49b; top: -18vmax; left: -12vmax; }
+  .bg .b { background: #f6dcc4; bottom: -22vmax; right: -14vmax; animation-duration: 30s; }
+  @media (prefers-color-scheme: dark) { .bg span { opacity: .12; } }
+  @keyframes drift { to { transform: translate(6vmax, 4vmax) scale(1.1); } }
+  main { max-width: 980px; margin: 0 auto; padding: clamp(24px, 6vw, 64px) 22px 48px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  .brand img { width: 34px; height: 34px; }
+  .hero { display: grid; grid-template-columns: 1.2fr .8fr; gap: 32px; align-items: center; margin: 48px 0 40px; }
+  h1 { margin: 0 0 14px; font-size: clamp(34px, 6vw, 58px); line-height: 1.04; letter-spacing: -1.2px; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lead { margin: 0; font-size: clamp(16px, 2vw, 19px); color: var(--muted); max-width: 32em; }
+  .hero img.big { width: min(260px, 60vw); justify-self: center; filter: drop-shadow(0 18px 40px rgb(120 60 30 / .25)); animation: float 6s ease-in-out infinite; }
+  @keyframes float { 50% { transform: translateY(-8px); } }
+  h2 { font-size: 22px; margin: 0 0 16px; letter-spacing: -.3px; }
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .dl { display: grid; gap: 6px; align-content: start; padding: 20px; border-radius: 18px; background: var(--card); border: 1px solid var(--line); color: inherit; text-decoration: none; transition: transform .15s, box-shadow .15s, border-color .15s; }
+  .dl:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgb(0 0 0 / .08); border-color: var(--accent); }
+  .dl.mine { border-color: var(--accent); box-shadow: 0 0 0 4px var(--soft); }
+  .dl .os { font-weight: 700; font-size: 17px; }
+  .dl .what { color: var(--muted); font-size: 14px; }
+  .dl .file { font: 12px ui-monospace, Menlo, monospace; color: var(--faint); word-break: break-all; }
+  .dl .btn { margin-top: 10px; justify-self: start; padding: 9px 16px; border-radius: 999px; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px; }
+  .dl .tag { justify-self: start; font-size: 11.5px; font-weight: 600; color: var(--accent-ink); background: var(--soft); padding: 2px 8px; border-radius: 999px; visibility: hidden; }
+  .dl.mine .tag { visibility: visible; }
+  .need { margin: 28px 0 0; padding: 18px 20px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); }
+  .need p { margin: 6px 0 0; color: var(--muted); font-size: 14.5px; }
+  code, pre { font: 13px ui-monospace, Menlo, monospace; }
+  pre { margin: 10px 0 0; padding: 12px 14px; border-radius: 12px; background: #1f1e1b; color: #f0eee6; overflow-x: auto; }
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 44px; }
+  .steps div { padding: 4px 2px; }
+  .steps b { display: block; margin-bottom: 4px; }
+  .steps span { color: var(--muted); font-size: 14.5px; }
+  footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--faint); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  footer a, .need a { color: var(--accent-ink); }
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: 1fr; text-align: center; margin-top: 28px; }
+    .hero img.big { grid-row: 1; width: 160px; }
+    .lead { margin: 0 auto; }
+    .downloads, .steps { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bg span, .hero img.big { animation: none; } }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true"><span class="a"></span><span class="b"></span></div>
+<main>
+  <div class="brand"><img src="icon.svg" alt="">ClaudeCall</div>
+
+  <section class="hero">
+    <div>
+      <h1>Lead your Claude team <em>by voice</em></h1>
+      <p class="lead">Talk to Ada, your assistant. She sets up projects, hands out the work and tells you who needs you, while each Claude Code agent works away in its own folder on your computer.</p>
+    </div>
+    <img class="big" src="icon.svg" alt="">
+  </section>
+
+  <h2>Download</h2>
+  <!-- the newest release, always: each one carries these files under these fixed names -->
+  <div class="downloads">
+    <a class="dl" id="mac" href="https://github.com/palakraisinghani/TalkToClaude/releases/latest/download/ClaudeCall-mac-apple-silicon.dmg">
+      <span class="tag">For this computer</span>
+      <span class="os">Mac</span>
+      <span class="what">Apple silicon (M1 or later), macOS 12 or newer</span>
+      <span class="file">ClaudeCall-mac-apple-silicon.dmg</span>
+      <span class="btn">Download for Mac</span>
+    </a>
+    <a class="dl" id="x64" href="https://github.com/palakraisinghani/TalkToClaude/releases/latest/download/ClaudeCall-linux-x64.deb">
+      <span class="tag">For this computer</span>
+      <span class="os">Ubuntu &amp; Debian</span>
+      <span class="what">Intel or AMD (x64): Ubuntu 20.04+, Debian 10+</span>
+      <span class="file">ClaudeCall-linux-x64.deb</span>
+      <span class="btn">Download .deb</span>
+    </a>
+    <a class="dl" id="arm64" href="https://github.com/palakraisinghani/TalkToClaude/releases/latest/download/ClaudeCall-linux-arm64.deb">
+      <span class="tag">For this computer</span>
+      <span class="os">Ubuntu &amp; Debian on ARM</span>
+      <span class="what">ARM (arm64) laptops and servers: Ubuntu 20.04+, Debian 10+</span>
+      <span class="file">ClaudeCall-linux-arm64.deb</span>
+      <span class="btn">Download .deb</span>
+    </a>
+  </div>
+
+  <div class="need">
+    <b>You'll need Claude Code, signed in.</b>
+    <p>Every agent is a Claude Code session, so it runs on your Claude subscription (Pro or Max) or Console account. No API key needed. Not installed yet? ClaudeCall walks you through it when you open it, or in a terminal:</p>
+    <pre>curl -fsSL https://claude.ai/install.sh | bash
+claude auth login</pre>
+  </div>
+
+  <div class="steps">
+    <div><b>1. Install</b><span>Mac: open the .dmg and drag ClaudeCall to Applications. Ubuntu/Debian: <code>sudo apt install ./ClaudeCall-linux-x64.deb</code></span></div>
+    <div><b>2. Open ClaudeCall</b><span>It opens in its own window and runs in the background, so your team keeps working when you close it.</span></div>
+    <div><b>3. Press call and talk</b><span>"Ada, start a project for a recipe website. Call the agent Kiwi." Say a name to talk to that agent.</span></div>
+  </div>
+
+  <footer>
+    <a href="https://github.com/palakraisinghani/TalkToClaude#readme">Install guide</a>
+    <a href="https://github.com/palakraisinghani/TalkToClaude/releases">All releases (including .tar.xz for other Linux)</a>
+    <a href="https://github.com/palakraisinghani/TalkToClaude">Source</a>
+    <span>Phones and tablets join the ClaudeCall on your computer; see the install guide.</span>
+  </footer>
+</main>
+<script>
+  // mark the download that fits the visitor's computer
+  const ua = navigator.userAgent, plat = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+  const mine = /Mac/i.test(plat) || /Macintosh/.test(ua) ? "mac" : /Linux/i.test(plat) || /Linux/.test(ua) ? (/aarch64|arm/i.test(ua + plat) ? "arm64" : "x64") : null;
+  if (mine) document.getElementById(mine).classList.add("mine");
+</script>
+</body>
+</html>
