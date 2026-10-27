@@ -191,6 +191,8 @@ export class Call {
   private order: string[] = [];
   private focused: string = CENTRAL_ID;
   private mode: Mode = "visual";
+  /** The canvas on the lead's screen, as "640×820": what diagrams should be drawn to fit. */
+  private canvas = "";
   private opts: CallOptions;
   private central: Project;
   /** What the lead taught for the assistant's name: kept apart from the built-in spellings. */
@@ -228,6 +230,14 @@ export class Call {
 
   get roster() {
     return [CENTRAL_ID, ...this.order].map((id) => this.view(id));
+  }
+
+  /** The size of the lead's canvas, rounded so a small resize does not resend the header. */
+  setCanvas(size: unknown): void {
+    const m = /^(\d{2,5})x(\d{2,5})$/.exec(String(size ?? ""));
+    if (!m) return;
+    const round = (n: string) => Math.max(100, Math.round(Number(n) / 50) * 50);
+    this.canvas = `${round(m[1])}×${round(m[2])}`;
   }
 
   setMode(mode: Mode): void {
@@ -1047,7 +1057,7 @@ export class Call {
     if (fresh) p.told = { session: p.session, header: "", team: new Map(), turns: 0 };
     const told = p.told!;
     const out: string[] = [];
-    const header = callHeader(this.mode, onLine);
+    const header = callHeader(this.mode, onLine, this.canvas);
     // a message that replaces a queued one may be replacing the one that carried the header
     if (header !== told.header || replacing) out.push(header);
     told.header = header;

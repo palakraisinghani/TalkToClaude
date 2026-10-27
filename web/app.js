@@ -8,6 +8,7 @@ import { isNoise, MIN_VOICED_MS } from "./noise.js";
 import { StereoEngine } from "./stereo.js";
 import { DEFAULT_MODEL, MODELS, modelChoices, modelLabel } from "./models.js";
 import { controlOf, EFFORTS, MODES, modeName, SLASH_HELP, slashOf } from "./controls.js";
+import { initDeck } from "./deck.js";
 import { drawDiagrams } from "./diagram.js";
 import { rateName, suggestNames } from "./namecheck.js";
 import * as attention from "./attention.js";
@@ -128,7 +129,7 @@ function draw() {
   callEl.dataset.state = s === "muted" ? "listening" : s;
   // who: the one your words go to, and the one whose voice you hear, which can differ (the
   // assistant reading out news while Juno has the floor)
-  const floorName = project(focusedId)?.name ?? centralName;
+  const floorName = (focusedId && focusedId !== centralId ? project(focusedId)?.name : null) ?? centralName;
   $("stateLabel").textContent = { hearing: `${floorName} is hearing you`, speaking: `${talkingId ? nameOf(talkingId) : floorName} is speaking`, thinking: `${floorName} is working`, listening: `${floorName} is listening`, paused: "paused", asleep: "asleep", muted: "muted" }[s];
   document.body.classList.toggle("is-paused", userPaused);
   document.body.classList.toggle("oncall", onCall);
@@ -380,7 +381,7 @@ function artifact(pid, key, { kind = "", title = "" } = {}) {
   artByKey.set(key, a);
   while (arts.length > MAX_ARTS) { const old = arts.pop(); old.el.remove(); artByKey.delete(old.key); }
   if (!onCanvas(pid)) unseen.set(pid, (unseen.get(pid) ?? 0) + 1);
-  markFresh("canvas");
+  markFresh("canvas", { expand: true }); // a picture, diagram or explanation: worth seeing
   render();
   return a;
 }
@@ -484,6 +485,21 @@ function setTab(which) {
 setTab("call");
 for (const b of document.querySelectorAll("#phoneNav button")) b.onclick = () => setTab(b.dataset.tab);
 
+/** The canvas's usable size, "640x820", for the agents to draw diagrams to fit; "" when hidden. */
+function canvasSize() {
+  const el = $("canvasScroll");
+  const w = el?.clientWidth ?? 0, h = el?.clientHeight ?? 0;
+  return w > 50 && h > 50 ? `${Math.round(w - 24)}x${Math.round(h)}` : "";
+}
+
+// ---------- wide screens: the sections as a deck to resize, collapse and rearrange ----------
+const deck = initDeck({
+  main: document.querySelector("main"),
+  sections: { head: $("head"), room: $("room"), canvas: $("canvasWrap"), feed: $("feedWrap") },
+  labels: { head: "Team", room: "Call", canvas: "Canvas", feed: "Behind the scenes" },
+  enabled: () => innerWidth >= 1100 && !phone.matches,
+});
+
 // ---------- canvas and behind the scenes as tabs, on screens too narrow for both ----------
 const narrow = matchMedia("(max-width: 1500px)");
 function showPane(which) {
@@ -495,7 +511,13 @@ function showPane(which) {
   }
 }
 /** A dot on a tab that has something new while you look at the other one. */
-function markFresh(which) {
+function markFresh(which, { expand = false } = {}) {
+  // wide screens: a collapsed section shows a dot, and the canvas opens itself for a new picture
+  if (deck.active()) {
+    if (expand) deck.expand(which);
+    deck.fresh(which);
+    return;
+  }
   if (phone.matches) {
     if (tab !== which) document.querySelector(`#phoneNav button[data-tab="${which}"]`)?.classList.add("fresh");
     return;
@@ -2314,7 +2336,7 @@ function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
     liveTurns.clear();
   }
   // spoken words get the clean-up pass on the server; typed ones are already what was meant
-  send({ type: "utterance", project: target, text: prompt, context, mode: mode(), typed: inputTyped || undefined, refine: $("refineToggle").checked });
+  send({ type: "utterance", project: target, text: prompt, context, mode: mode(), typed: inputTyped || undefined, refine: $("refineToggle").checked, canvas: canvasSize() });
   showYou(shown);
   render();
 }
@@ -2949,7 +2971,7 @@ $("sensitivity").onchange = () => {
   listener?.sensitivity?.($("sensitivity").value);
   try { localStorage.setItem("sensitivity", $("sensitivity").value); } catch {}
 };
-function applyMode() { document.body.classList.toggle("audio", mode() === "audio"); }
+function applyMode() { document.body.classList.toggle("audio", mode() === "audio"); deck.refresh(); }
 $("audioOnly").onchange = applyMode;
 try { $("phones").checked = localStorage.getItem("phones") === "1"; } catch {}
 $("phones").onchange = () => { try { localStorage.setItem("phones", $("phones").checked ? "1" : "0"); } catch {} };

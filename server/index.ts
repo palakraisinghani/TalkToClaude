@@ -415,6 +415,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
         if (typeof m.text !== "string" || !m.text.trim() || !call) break;
         const to = String(m.project ?? "");
         const heard = m.text.trim();
+        call.setCanvas(m.canvas);
         // spoken words get a clean-up pass first, unless typed or switched off on the page
         if (m.typed || m.refine === false) { call.ask(to, heard, m.context); break; }
         const c = call;

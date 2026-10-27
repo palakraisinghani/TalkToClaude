@@ -242,7 +242,7 @@
   .backbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; border: 1px solid hsl(var(--back-hue, 18) 50% 55% / .6); background: hsl(var(--back-hue, 18) 60% 55% / .1); cursor: pointer; }
   .backbtn:hover { background: hsl(var(--back-hue, 18) 60% 55% / .22); }
   .backbtn[hidden] { display: none; }
-  #stateLabel { font-weight: 600; letter-spacing: .3px; text-transform: lowercase; color: var(--muted); font-size: 13px; }
+  #stateLabel { font-weight: 600; letter-spacing: .3px; color: var(--muted); font-size: 13px; }
   .nring { position: absolute; inset: 2px; border-radius: 50%; border: 3px solid var(--think); opacity: 0; pointer-events: none; }
   body.has-notices .nring { opacity: 1; animation: nring 1.8s ease-in-out infinite; }
   @keyframes nring { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.06); opacity: .35; } }
@@ -652,6 +652,33 @@
   .slashhelp .err { color: var(--think); padding: 3px 6px; }
   .modelrow select.pick { font-size: 12px; padding: 3px 6px; max-width: 120px; }
   .reach[hidden] { display: none; }
+
+  /* ---------- wide screens: the four sections as a deck you arrange (deck.js) ---------- */
+  .deckbar, .deckrail, .deckgutter { display: none; }
+  body.deck main { display: flex !important; }
+  body.deck main > #head, body.deck main > #room, body.deck main > .pane { position: relative; min-width: 0; }
+  body.deck #canvasWrap, body.deck #feedWrap { display: flex !important; }
+  body.deck.audio #canvasWrap, body.deck.audio #feedWrap { display: none !important; }
+  body.deck .panehead .tabs { display: none !important; }
+  body.deck .panehead h2 { display: flex !important; }
+  body.deck .widebtn, body.deck .foldbtn, body.deck .feedrail { display: none !important; }
+  body.deck .deckbar { display: flex; align-items: center; position: absolute; top: 3px; left: 50%; transform: translateX(-50%); z-index: 6; gap: 1px; padding: 1px 3px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); opacity: 0; transition: opacity .15s; }
+  body.deck main > :hover > .deckbar, body.deck .deckbar:focus-within, body.deck-dragging .deckbar { opacity: 1; }
+  .deckbar button, .deckbar .grip { border: none; background: none; cursor: pointer; color: var(--muted); font: inherit; font-size: 12px; line-height: 1; padding: 3px 7px; border-radius: 999px; }
+  .deckbar .grip { cursor: grab; user-select: none; }
+  .deckbar button:hover, .deckbar .grip:hover { background: var(--bg); color: var(--ink); }
+  body.deck .deckgutter { display: block; flex: 0 0 8px; margin: 0 -4px; cursor: col-resize; position: relative; z-index: 5; touch-action: none; }
+  .deckgutter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; border-radius: 2px; background: var(--accent); opacity: 0; transition: opacity .15s; }
+  .deckgutter:hover::after, body.deck-resizing .deckgutter::after { opacity: .9; }
+  body.deck-resizing { cursor: col-resize; user-select: none; }
+  body.deck-resizing iframe, body.deck-resizing #canvas { pointer-events: none; }
+  body.deck main > .deck-collapsed > :not(.deckrail) { display: none !important; }
+  body.deck main > .deck-collapsed > .deckrail { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0; border: none; border-left: 1px solid var(--line); background: var(--panel); color: var(--muted); cursor: pointer; }
+  .deckrail:hover { color: var(--ink); background: color-mix(in srgb, var(--line) 35%, var(--panel)) !important; }
+  .deckrail .lbl { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; letter-spacing: .5px; white-space: nowrap; }
+  .deckrail .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); visibility: hidden; }
+  .deckrail .dot.on { visibility: visible; }
+  main > .deck-drop { outline: 2px dashed var(--accent); outline-offset: -4px; }
 
   /* narrower screens: canvas and behind the scenes share one column, as tabs */
   @media (max-width: 1500px) {

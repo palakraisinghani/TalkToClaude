@@ -42,8 +42,7 @@ export async function drawDiagrams(root) {
     if (themed) drawn.clear();
     themed = t;
   }
-  for (const el of todo) {
-    const src = decodeURIComponent(el.dataset.src ?? "");
+  const draw = async (src) => {
     let got = drawn.get(src);
     if (!got) {
       try {
@@ -55,15 +54,45 @@ export async function drawDiagrams(root) {
       drawn.set(src, got);
       if (drawn.size > 60) drawn.delete(drawn.keys().next().value);
     }
+    return got;
+  };
+  for (const el of todo) {
+    const src = decodeURIComponent(el.dataset.src ?? "");
+    let got = await draw(src);
     if (!el.isConnected) continue;
-    if (typeof got === "string") show(el, got, src);
+    // A flow drawn left to right that is far wider than the canvas would be shrunk to an unreadable
+    // strip: drawn top to bottom instead, which suits a canvas taller than it is wide.
+    const room = Math.max(200, el.clientWidth - 24);
+    const flip = typeof got === "string" ? flipped(src) : null;
+    if (flip && natural(got).w > room * 1.3) {
+      const tall = await draw(flip);
+      if (typeof tall === "string" && natural(tall).w < natural(got).w) got = tall;
+    }
+    if (!el.isConnected) continue;
+    if (typeof got === "string") show(el, got, src, room);
     else fail(el, got.error, src);
   }
 }
 
-function show(el, svg, src) {
+/** The diagram's own size, from its viewBox. */
+export function natural(svg) {
+  const m = /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(svg);
+  return m ? { w: Number(m[1]), h: Number(m[2]) } : { w: 0, h: 0 };
+}
+
+/** The same flowchart, top to bottom; null if it is not a left-to-right one. */
+export function flipped(src) {
+  const re = /^(\s*(?:graph|flowchart)\s+)(LR|RL)\b/m;
+  return re.test(src) ? src.replace(re, "$1TD") : null;
+}
+
+function show(el, svg, src, room = 0) {
   el.classList.add("drawn");
   el.innerHTML = `<div class="dtools"><button data-act="expand" title="Open large">⤢</button><button data-act="save" title="Download as SVG">⤓</button></div>${svg}`;
+  // still too wide to fit legibly (more than 40% smaller): kept at a readable size, scrolled sideways
+  const { w } = natural(svg);
+  const s = el.querySelector("svg");
+  if (s && room && w > room / 0.6) { s.style.maxWidth = "none"; s.style.width = `${Math.round(w * 0.6)}px`; }
   el.querySelector("[data-act=expand]").onclick = () => expand(svg);
   el.querySelector("[data-act=save]").onclick = () => save(svg, src);
   el.ondblclick = () => expand(svg);

@@ -29,8 +29,10 @@ export function formatContext(mode: Mode, ctx?: CallContext | null, onTheLine = 
 }
 
 /** Where the agent is on the call. The same turn after turn, so it is only sent when it changes. */
-export function callHeader(mode: Mode, onTheLine = true): string {
-  return `[call · ${mode === "audio" ? "audio-only" : "visual+audio"} · ${onTheLine ? "you are on the line" : "you are in the background, your words are not spoken"}]`;
+export function callHeader(mode: Mode, onTheLine = true, canvas = ""): string {
+  // the canvas's size, so diagrams and pictures are drawn to fit it (visual calls only)
+  const room = mode !== "audio" && canvas ? ` · canvas ${canvas} px` : "";
+  return `[call · ${mode === "audio" ? "audio-only" : "visual+audio"} · ${onTheLine ? "you are on the line" : "you are in the background, your words are not spoken"}${room}]`;
 }
 
 /** What the listener had heard when they cut in: about this message alone, so always sent. */
