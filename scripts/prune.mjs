@@ -78,6 +78,14 @@ for (const [at, files] of Object.entries(SERVED)) {
   for (const f of files) if (!f.includes("legacy") && !f.includes("worklet") && !existsSync(join(dir, f))) throw new Error(`${at}/${f} is missing`);
 }
 
+// GPU back ends for onnxruntime (CUDA, TensorRT): speech recognition runs on the CPU
+const ort = join(app, "node_modules", "onnxruntime-node", "bin");
+if (existsSync(ort)) {
+  const gpu = /providers_(cuda|tensorrt|rocm|migraphx|openvino)|libcudnn|libcublas|libcufft|libcurand|libnvinfer/i;
+  const sweepGpu = (d) => { for (const e of readdirSync(d)) { const f = join(d, e); if (lstatSync(f).isDirectory()) sweepGpu(f); else if (gpu.test(e)) rmSync(f); } };
+  sweepGpu(ort);
+}
+
 // command-line shortcuts: nothing here runs them, and many now point at removed packages
 rmSync(join(app, "node_modules", ".bin"), { recursive: true, force: true });
 

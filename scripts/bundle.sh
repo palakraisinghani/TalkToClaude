@@ -39,7 +39,10 @@ rm -rf "$DL"
 # ---------- dependencies for that platform, trimmed of what it never loads ----------
 LIBC=$([ "$OS" = linux ] && echo "--libc=glibc" || echo "")
 # shellcheck disable=SC2086
-(cd "$DEST/app" && npm ci --omit=dev --os="$OS" --cpu="$ARCH" $LIBC --no-audit --no-fund --loglevel=error)
+# ONNXRUNTIME_NODE_INSTALL=skip: on an x64 Linux machine onnxruntime-node otherwise downloads its
+# NVIDIA CUDA libraries, ~100 MB the speech recogniser (on the CPU) never loads — the x64 .deb
+# built on GitHub's runner came out at 155 MB instead of 49
+(cd "$DEST/app" && ONNXRUNTIME_NODE_INSTALL=skip npm ci --omit=dev --os="$OS" --cpu="$ARCH" $LIBC --no-audit --no-fund --loglevel=error)
 NM="$DEST/app/node_modules"
 rm -rf "$NM/@huggingface/transformers/.cache"
 for d in "$NM"/onnxruntime-node/bin/napi-v*/*; do [ "$(basename "$d")" = "$OS" ] || rm -rf "$d"; done
