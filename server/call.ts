@@ -142,7 +142,7 @@ class Project {
   parserFor(turn: number): ReplyParser {
     // only the central agent runs the call; any agent may hand the lead over to someone else
     // only the central agent runs the call; any agent may hand the lead over, or change its own voice
-    return this.parsers.get(turn) ?? this.parsers.set(turn, new ReplyParser({ actions: this.central ? undefined : ["handoff", "voice", "call"] })).get(turn)!;
+    return this.parsers.get(turn) ?? this.parsers.set(turn, new ReplyParser({ actions: this.central ? undefined : ["handoff", "voice", "call", "questions"] })).get(turn)!;
   }
 }
 
@@ -1182,7 +1182,7 @@ export class Call {
       `If your folder has a \`BRIEF.md\`, it is your mission: read it when you start, and keep to it.`,
       `If the lead asks you to sound different — slower, faster, louder, quieter, another voice, the other side — change it yourself with \`<voice speed="slower"/>\` (attributes: \`name\` a system voice such as Daniel or Karen, \`speed\` a number around 1 or faster/slower, \`volume\` 0–1 or louder/quieter, \`side\` left, right or centre). It changes only your own voice, from your next sentence.`,
       `If the lead asks you to pause the call, put it on hold, mute them or hang up, do it with \`<call do="pause"/>\` (or \`hold\`, \`mute\`, \`end\`), after one short \`<say>\` saying what will happen and how they come back ("Muting you now. Tap the microphone to unmute."). Only when they ask, and only while you are on the line. Your work carries on either way.`,
-      `When what to make is still open — "build something for Diwali", "make me an app" — do not pick for them and start. Ask two or three short questions first (what kind of thing, who it is for, anything it must have), one \`<say>\` each, then wait for the answers. Once it is clear, say in a sentence what you will build and start. Small, specific requests ("fix the login bug", "add a dark mode") need no questions: just do them.`,
+      `When what to make is still open — "build something for Diwali", "make me an app" — do not pick for them and start. Ask two or three short questions first (what kind of thing, who it is for, anything it must have): say them, briefly, and also put them in a \`<questions>\` block, one per line with any choices after \`|\` (\`What kind of thing? | website | game | animation\`), which shows them on the lead's screen as a form to fill in. Then wait for the answers. Once it is clear, say in a sentence what you will build and start. Small, specific requests ("fix the login bug", "add a dark mode") need no questions: just do them.`,
       ``,
       `## The canvas`,
       `Whatever you put in \`<screen>\` appears on a canvas beside the call. To show a picture, GIF or video, write \`![what it is](path/or/link)\` with the file's path (relative to your folder, or absolute) or a web link: the canvas reads the file itself. Never paste an image as base64 or a \`data:\` URL; it gets cut off and never shows.`,
@@ -1245,7 +1245,15 @@ export class Call {
       else if (e.kind === "screen") this.emit(p, { type: "screen", project: id, turn, text: e.text });
       else if (e.kind === "aside") this.emit(p, { type: "aside", project: id, turn, text: e.text });
       else if (e.kind === "question") p.pendingQuestion = e.text;
-      else if (e.kind === "action") {
+      else if (e.kind === "action" && e.name === "questions") {
+        // questions for the lead, from anyone: a form on their canvas to fill in (they are said
+        // out loud as well); one nobody is listening to waits for them like any question
+        const items = questionsOf(e.body);
+        if (items.length) {
+          this.emit(p, { type: "questions", project: id, turn, id: `qs-${id}-${turn}-${Date.now().toString(36)}`, items });
+          if (this.focused !== id && !p.central) p.pendingQuestion = items.map((q) => q.q).join(" ");
+        }
+      } else if (e.kind === "action") {
         // only the central agent runs the call; from a project, a tag like this is just text
         if (p.central) {
           this.emit(p, { type: "action", project: id, turn, name: e.name, attrs: e.attrs, body: e.body });
@@ -1432,6 +1440,17 @@ export class Call {
       }
     }
   }
+}
+
+/**
+ * The questions in a <questions> block: one per line, choices after "|"
+ * ("What kind of thing? | website | game"). Numbering and bullets are dropped.
+ */
+export function questionsOf(body: string): { q: string; options: string[] }[] {
+  return body.split("\n").map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim()).filter(Boolean).slice(0, 8).map((l) => {
+    const [q, ...opts] = l.split("|").map((x) => x.trim());
+    return { q, options: opts.filter(Boolean).slice(0, 8) };
+  }).filter((x) => x.q);
 }
 
 /** A tag as Ada is reminded of it: <new name="Juno" folder="cat">. */

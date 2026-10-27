@@ -10,10 +10,10 @@ export type ParsedEvent =
   /** A control tag such as <open path="…"/> or <delegate to="rex">…</delegate>. */
   | { kind: "action"; name: ActionName; attrs: Record<string, string>; body: string; text: string };
 
-export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close" | "handoff" | "voice" | "call" | "setting" | "remember" | "forget" | "control";
+export type ActionName = "open" | "new" | "switch" | "delegate" | "park" | "close" | "handoff" | "voice" | "call" | "setting" | "remember" | "forget" | "control" | "questions";
 
 type Section = "none" | "say" | "screen" | "question";
-export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget", "control"];
+export const ALL_ACTIONS: ActionName[] = ["open", "new", "switch", "delegate", "park", "close", "handoff", "voice", "call", "setting", "remember", "forget", "control", "questions"];
 /**
  * How far an action tag's opening may run without its ">" before it is taken to be ordinary text.
  * Its body — a brief — may be far longer (BODY_MAX): briefs for new agents run 1,000–1,600

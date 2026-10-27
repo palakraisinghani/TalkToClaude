@@ -653,6 +653,22 @@
   .modelrow select.pick { font-size: 12px; padding: 3px 6px; max-width: 120px; }
   .reach[hidden] { display: none; }
 
+  /* an agent's questions, as a form on the canvas */
+  .qform { display: grid; gap: 14px; padding: 4px 2px; }
+  .qrow { display: grid; gap: 6px; }
+  .qrow label { font-weight: 600; font-size: 14.5px; }
+  .qrow input { font: inherit; font-size: 14px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .qrow input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .qchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .qchip { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .qchip:hover { border-color: var(--accent); }
+  .qchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .qfoot { display: flex; align-items: center; gap: 12px; }
+  .qsend { font: inherit; font-weight: 600; font-size: 14px; padding: 9px 18px; border-radius: 999px; border: none; background: var(--accent); color: #fff; cursor: pointer; }
+  .qnote { font-size: 13px; color: var(--muted); }
+  .qform.sent { opacity: .7; }
+  .qform.sent .qsend { background: var(--line); color: var(--muted); }
+
   /* ---------- wide screens: the four sections as a deck you arrange (deck.js) ---------- */
   .deckbar, .deckrail, .deckgutter { display: none; }
   body.deck main { display: flex !important; }

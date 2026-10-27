@@ -136,3 +136,14 @@ test("an interrupted reply says which tag it was in the middle of", () => {
   q.feed(`<say>Sure, starting`);
   assert.equal(q.unfinished(), null);
 });
+
+test("an agent's questions block: one question per line, choices after |", async () => {
+  const { questionsOf } = await import("./call.ts");
+  assert.deepEqual(questionsOf("1. What kind of thing? | website | game\n- Who is it for?\n\n"), [
+    { q: "What kind of thing?", options: ["website", "game"] },
+    { q: "Who is it for?", options: [] },
+  ]);
+  const p = new ReplyParser({ actions: ["handoff", "voice", "call", "questions"] });
+  const evs = [...p.feed("<say>Two quick questions.</say><questions>\nWhat kind? | site | game\nFor whom?\n</questions>"), ...p.end()];
+  assert.ok(evs.some((e) => e.kind === "action" && e.name === "questions" && e.body.includes("For whom?")));
+});

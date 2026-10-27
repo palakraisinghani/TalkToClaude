@@ -412,6 +412,52 @@ function showArt(a) {
   setTimeout(() => a.el.classList.remove("flash"), 1200);
 }
 
+/**
+ * An agent's questions for you, as a form on the canvas: each question with its choices as chips
+ * and a box for your answer, and one button that sends them all back to that agent. They are
+ * said out loud too; answering by voice works just as well.
+ */
+function showQuestions(m) {
+  const a = artifact(m.project, m.id, { kind: "questions", title: `${nameOf(m.project)} asks` });
+  const form = Object.assign(document.createElement("form"), { className: "qform", autocomplete: "off" });
+  m.items.forEach((it, i) => {
+    const row = Object.assign(document.createElement("div"), { className: "qrow" });
+    const label = Object.assign(document.createElement("label"), { htmlFor: `${m.id}-${i}`, textContent: it.q });
+    const input = Object.assign(document.createElement("input"), { id: `${m.id}-${i}`, name: `a${i}`, placeholder: it.options.length ? "Pick one, or type your own" : "Your answer" });
+    row.append(label);
+    if (it.options.length) {
+      const chips = Object.assign(document.createElement("div"), { className: "qchips" });
+      for (const opt of it.options) {
+        const chip = Object.assign(document.createElement("button"), { type: "button", className: "qchip", textContent: opt });
+        chip.onclick = () => { input.value = opt; for (const c of chips.children) c.classList.toggle("on", c === chip); };
+        chips.append(chip);
+      }
+      input.oninput = () => { for (const c of chips.children) c.classList.toggle("on", c.textContent === input.value); };
+      row.append(chips);
+    }
+    row.append(input);
+    form.append(row);
+  });
+  const foot = Object.assign(document.createElement("div"), { className: "qfoot" });
+  const send = Object.assign(document.createElement("button"), { type: "submit", className: "qsend", textContent: "Send answers" });
+  const note = Object.assign(document.createElement("span"), { className: "qnote" });
+  foot.append(send, note);
+  form.append(foot);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const answers = m.items.map((it, i) => ({ q: it.q, a: form.elements[`a${i}`].value.trim() }));
+    if (answers.every((x) => !x.a)) { note.textContent = "Answer at least one first."; return; }
+    const text = `My answers:\n${answers.map((x, i) => `${i + 1}. ${x.q} — ${x.a || "no preference"}`).join("\n")}`;
+    inputTyped = true;
+    ask(text, text, { project: m.project });
+    for (const el of form.elements) el.disabled = true;
+    form.classList.add("sent");
+    note.textContent = `Sent to ${nameOf(m.project)}.`;
+  };
+  a.body.replaceChildren(form);
+  form.querySelector("input")?.focus({ preventScroll: true });
+}
+
 /** The latest to-do list an agent wrote, as a checklist with progress. */
 function updatePlan(pid, detail) {
   const items = detail.split("\n").map((l) => /^\[(x|~| )\] (.*)$/.exec(l)).filter(Boolean)
@@ -1768,6 +1814,7 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "questions": showQuestions(m); break;
     case "introducing": quietHandover = m.project; break;
     case "hello":
       // the server was updated while this page was open: load the new page that goes with it
