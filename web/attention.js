@@ -82,15 +82,21 @@ export function createAttention() {
 const list = (names) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 const unique = (xs) => [...new Set(xs)];
 
-/** The one line said in a quiet moment: who is waiting, never what about. */
+/**
+ * The one line said in a quiet moment: who is waiting, never what about. The assistant says it, so
+ * her own requests (`self`) are "I need your answer", never "Ada is waiting on you" in her voice.
+ */
 export function headsUpLine(items) {
   if (!items.length) return null;
-  const waiting = unique(items.filter((i) => BLOCKING.has(i.kind)).map((i) => i.name));
-  const done = unique(items.filter((i) => !BLOCKING.has(i.kind)).map((i) => i.name)).filter((n) => !waiting.includes(n));
+  const others = items.filter((i) => !i.self);
+  const mine = items.some((i) => i.self && BLOCKING.has(i.kind));
+  const waiting = unique(others.filter((i) => BLOCKING.has(i.kind)).map((i) => i.name));
+  const done = unique(others.filter((i) => !BLOCKING.has(i.kind)).map((i) => i.name)).filter((n) => !waiting.includes(n));
   const many = items.length > 1;
   const parts = [];
   if (waiting.length) parts.push(`${list(waiting)} ${waiting.length > 1 ? "are" : "is"} waiting on you`);
   if (done.length) parts.push(`${list(done)} ${done.length > 1 ? "have" : "has"} news`);
+  if (mine) parts.push(parts.length ? "I need your answer on something too" : "I need your answer on something");
   return `${parts.join(", and ")}. Want to hear ${many ? "them" : "it"}?`;
 }
 
@@ -116,7 +122,9 @@ function present(state, item, now) {
     return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS }, say: [ask], actions: [] };
   }
   if (item.kind === "question") {
-    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS * 3 }, say: [`${item.text.replace(/\s*$/, "")} What should I tell ${item.name}?`], actions: [] };
+    // her own question is just asked; someone else's is passed on, and the answer taken back
+    const ask = item.self ? item.text.replace(/\s*$/, "") : `${item.text.replace(/\s*$/, "")} What should I tell ${item.name}?`;
+    return { state: { ...state, mode: "awaiting", item, until: now + WINDOW_MS * 3 }, say: [ask], actions: [] };
   }
   return { state: { ...state, mode: "reviewing", item: null }, say: [item.text], actions: [{ type: "dismiss", item }] };
 }

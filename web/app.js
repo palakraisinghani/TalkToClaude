@@ -294,7 +294,7 @@ function seat(p) {
     tool("back", "Undo its last piece of work", () => askUndo(p.id));
     tool("pencil", "Rename", () => renameAgent(p.id));
     tool("park", "Park: stop this agent, keep its conversation", () => send({ type: "park", project: p.id }));
-    tool("x", "Take off the team (the folder is kept)", () => { if (confirm(`Take ${p.name} off the team? Its folder and conversation stay on disk.`)) send({ type: "remove", project: p.id }); });
+    tool("x", "Take off the team (the folder is kept)", async () => { if (await askSure(`Take ${p.name} off the team? Its folder and conversation stay on disk.`, "Take off the team")) send({ type: "remove", project: p.id }); });
     el.querySelector(".foot").appendChild(modelPicker(p.id));
     el.onclick = () => focusOn(p.id);
     el.onkeydown = (e) => { if (e.key === "Enter") focusOn(p.id); };
@@ -536,7 +536,10 @@ function menuControl(what) {
   if (what === "undo") return askUndo(pid === centralId ? null : pid);
   if (what === "stop") { send({ type: "interrupt", project: pid }); if (onCall) central.say(`Stopped ${nameOf(pid)}.`); return; }
   if (what === "help") return showSlashHelp("/");
-  if (what === "clear" && !confirm(`Start a new conversation with ${nameOf(pid)}? It forgets this one (its files stay).`)) return;
+  if (what === "clear") {
+    askSure(`Start a new conversation with ${nameOf(pid)}? It forgets this one (its files stay).`, "New conversation").then((ok) => ok && runControl(pid, what));
+    return;
+  }
   runControl(pid, what);
 }
 function drawFloorControls(f) {
@@ -1265,7 +1268,7 @@ function enqueue(m) {
     return;
   }
   // the assistant asking for herself speaks as herself, not of herself
-  if (m.project === centralId) m = { ...m, text: m.text.replace(new RegExp(`^${centralName} wants to`), "I'd like to").replace(new RegExp(`^${centralName} asks:`), "I have a question:") };
+  if (m.project === centralId) m = { ...m, self: true, text: m.text.replace(new RegExp(`^${centralName} wants to`), "I'd like to").replace(new RegExp(`^${centralName} asks:`), "I have a question:") };
   const item = { ...m, uid: ++queueSeq, at: m.at ?? Date.now() };
   // news replaces older news from the same agent: only its latest report is worth hearing
   if (item.kind === "finished" || item.kind === "failed") {
@@ -1277,8 +1280,11 @@ function enqueue(m) {
   // already summed up in the welcome-back briefing: not offered again as a fresh heads-up
   else att = { ...att, announced: new Set([...att.announced, item.uid]), lastHeadsUp: Date.now() };
   notifyAway(item);
-  // a request from whoever you are talking to is part of that conversation: ask it now
-  if (item.onLine && item.project === focusedId && !att.hold) obey(attention.urgent(att, item, Date.now()));
+  // A request from whoever you are talking to is part of that conversation: ask it now. Hers
+  // above all — talking to Ada, you never hear "Ada is waiting on you" — even while holding calls,
+  // which is about the others.
+  const fromFloor = item.project === focusedId && (item.onLine || item.self);
+  if (fromFloor && (!att.hold || item.self)) obey(attention.urgent(att, item, Date.now()));
   render();
 }
 
@@ -1889,6 +1895,21 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
   }
   lastIgnored = null;
   lastActivity = Date.now();
+  // "Mm-hmm", "right", "okay" while it is still talking: you are listening, not cutting in. It
+  // carries on from where it paused. Not when it is waiting on a yes or no, or has just asked you
+  // something: then the same word is your answer.
+  const midSpeech = !typed && (voice.speaking || voice.held) && (ducked || continuing || dipped || voice.speaking);
+  // the sentence it was in the middle of: playing, or held in its place at the front of the queue
+  const asked = /\?\s*$/.test(voice.current?.text ?? voice.queue[0]?.text ?? "");
+  if (midSpeech && !userPaused && BACKCHANNEL.test(t) && att.mode === "normal" && !asked) {
+    showYou(text);
+    feedNote(`Heard “${text}” — carried on.`);
+    if ((ducked || continuing) && !userPaused) voice.resume();
+    ducked = continuing = false;
+    undip();
+    render();
+    return;
+  }
   showYou(text);
   // Talking over a voice holds it. Whatever this turns out to be, the hold is let go afterwards —
   // unless it was "pause", or it went to an agent (which clears the voice anyway). Left held, the
@@ -2028,11 +2049,15 @@ function briefing(m) {
   const mins = Math.max(1, Math.round((Date.now() - m.since) / 60000));
   const news = m.news ?? [];
   const names = (kinds) => [...new Set(news.filter((n) => kinds.includes(n.kind)).map((n) => n.name))];
-  const done = names(["finished"]), waiting = names(["permission", "question"]), failed = names(["failed", "blocked"]);
+  const done = names(["finished"]), failed = names(["failed", "blocked"]);
+  // her own requests, in her own words: "I need your answer", not "Ada is waiting on you"
+  const waiting = names(["permission", "question"]).filter((n) => n !== centralName);
+  const mineWaiting = news.some((n) => n.name === centralName && (n.kind === "permission" || n.kind === "question"));
   const bits = [];
   if (done.length) bits.push(`${listNames(done)} finished`);
   if (failed.length) bits.push(`${listNames(failed)} hit a problem`);
   if (waiting.length) bits.push(`${listNames(waiting)} ${waiting.length > 1 ? "are" : "is"} waiting on you`);
+  if (mineWaiting) bits.push("I need your answer on something");
   central.say(bits.length
     ? `Welcome back. In the ${mins} minute${mins > 1 ? "s" : ""} you were away, ${bits.join(", ")}. Say next to go through it.`
     : `Welcome back. Nothing new in the ${mins} minute${mins > 1 ? "s" : ""} you were away; the team is still at work.`);
@@ -2237,10 +2262,18 @@ function ask(prompt, shown, { merge = false, project: pid = null } = {}) {
   // not: what you say goes in beside the work as a side question, and the work carries on.
   const sideQuestion = busy && !merge && target !== centralId;
   if (sideQuestion) {
+    // what you had heard of its reply when you spoke: if it was talking rather than running a
+    // command, the server cuts in for real, and the agent picks up from exactly there
+    let cut = null;
+    if (target === focusedId && voice.busy) {
+      voice.hold();
+      const snap = voice.snapshot();
+      cut = { kind: "interrupted", heard: snap.heard, unheard: snap.unheard, working: true };
+    }
     voice.clear();
     userPaused = false;
     lastAsk = { text: prompt, at: Date.now(), btw: true, project: target };
-    send({ type: "btw", project: target, text: prompt });
+    send({ type: "btw", project: target, text: prompt, context: cut });
     showYou(shown);
     render();
     return;
@@ -2325,6 +2358,16 @@ async function startCall() {
   mediaKeys();
   voice.unlock();
   central.hello();
+  await openListener();
+  audioCtx.onstatechange = () => { if (audioCtx.state !== "running") setTimeout(keepHearing, 300); };
+  if (!muted) startListening();
+  clearInterval(sleepTimer);
+  sleepTimer = setInterval(tick, 1000);
+  render();
+}
+
+/** The microphone and the voice detector on it (or, failing that, the browser's own recognition). */
+async function openListener() {
   try {
     listener ??= await createVadListener({
       audioContext: audioCtx,
@@ -2345,7 +2388,7 @@ async function startCall() {
         transcribe(pcm, voicedMs);
       },
       sensitivity: $("sensitivity").value,
-      onLevel: (p) => callEl.style.setProperty("--level", p.toFixed(2)),
+      onLevel: (p) => { callEl.style.setProperty("--level", p.toFixed(2)); bargeFrame(p); },
       processorType: new URLSearchParams(location.search).get("processor") === "script" ? "ScriptProcessor" : "auto",
     });
   } catch (err) {
@@ -2357,10 +2400,6 @@ async function startCall() {
       feedError(focusedId, 0, `ClaudeCall cannot hear on this browser: ${e2.message}. You can still type.`);
     }
   }
-  if (!muted) startListening();
-  clearInterval(sleepTimer);
-  sleepTimer = setInterval(tick, 1000);
-  render();
 }
 
 function endCall(message) {
@@ -2391,7 +2430,26 @@ function endCall(message) {
   render();
 }
 
+// Talking over the voice for real, not a breath or its own echo: speech that keeps going after
+// the voice has dropped away (its echo all but gone with it) pauses the voice where it is. If the
+// words turn out to be nothing, or a quick "mm-hmm", it carries on from that very word.
+const BARGE_FRAMES = 20; // ~640 ms of steady speech
+let bargeVoiced = 0;
+function bargeFrame(p) {
+  if (!dipped || !voice.speaking || userPaused) { bargeVoiced = 0; return; }
+  bargeVoiced = p >= 0.5 ? bargeVoiced + 1 : Math.max(0, bargeVoiced - 1);
+  if (bargeVoiced >= BARGE_FRAMES) {
+    bargeVoiced = 0;
+    ducked = true; // the hold is let go again by heardText if this was nothing
+    voice.hold();
+    render();
+  }
+}
+
 let dipped = false, dipTimer = 0;
+/** A listener's acknowledgement, not an interruption. Whole utterance only. */
+const BACKCHANNEL = /^(?:yeah|yep|yes|ok|okay|mm+|mhm+|mm hmm|mhmm|uh huh|uh-huh|right|sure|got it|i see|cool|nice|great|alright|all right|true|exactly|makes sense|go on|carry on|continue)$/;
+
 /** Back to full volume: what started over the voice was noise, or its own echo. */
 function undip() {
   clearTimeout(dipTimer);
@@ -2400,6 +2458,7 @@ function undip() {
 
 function onSpeechStart() {
   if (!onCall || muted) return;
+  bargeVoiced = 0;
   hearing = true;
   lastActivity = Date.now();
   // hold (not drop) the reply: if this turns out to be noise it plays on, if it is more of your sentence it is replaced
@@ -2795,6 +2854,42 @@ $("newDlg").addEventListener("close", () => {
 
 // ---------- controls ----------
 $("callBtn").onclick = () => (onCall ? endCall() : startCall());
+/**
+ * "Are you sure?" in the page. Not the browser's confirm(): that freezes the page while it is open,
+ * and in the Mac app the microphone stayed dead after it was cancelled.
+ */
+function askSure(text, yes = "OK") {
+  return new Promise((resolve) => {
+    const dlg = $("sureDlg");
+    $("sureText").textContent = text;
+    $("sureYes").textContent = yes;
+    dlg.onclose = () => resolve(dlg.returnValue === "yes");
+    dlg.returnValue = "";
+    dlg.showModal();
+  });
+}
+
+// Keeping the microphone alive through anything that pauses the page's audio: a system alert, the
+// laptop sleeping, another app taking the mic, a headset unplugged. Whatever stopped it, it is
+// started again, and a microphone that has gone dead is opened afresh.
+async function keepHearing() {
+  if (!onCall || muted || !listener) return;
+  if (audioCtx && audioCtx.state !== "running" && audioCtx.state !== "closed") {
+    try { await audioCtx.resume(); } catch {}
+  }
+  if (listener.live && !listener.live()) {
+    feedNote("The microphone stopped; opening it again.");
+    try { listener.destroy(); } catch {}
+    listener = null;
+    await openListener();
+    if (listener && !muted) startListening();
+  }
+}
+setInterval(keepHearing, 4000);
+window.addEventListener("focus", keepHearing);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) keepHearing(); });
+navigator.mediaDevices?.addEventListener?.("devicechange", () => setTimeout(keepHearing, 500));
+
 async function startListening() {
   try {
     await listener?.start();

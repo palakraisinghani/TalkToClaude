@@ -25,6 +25,7 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
   let voicedFrames = 0;
   let segmentAt = 0;
   let vad = null;
+  let stream = null; // the microphone, kept so it can be checked: a dead one is reopened (app.js)
   const options = () => strict
     ? { ...level, positiveSpeechThreshold: Math.min(0.9, level.positiveSpeechThreshold + 0.1), minSpeechMs: level.minSpeechMs + 50 }
     : level;
@@ -35,9 +36,9 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
     startOnLoad: false,
     audioContext, // created inside the click handler so Safari lets it run
     processorType, // "ScriptProcessor" for browsers without a working AudioWorklet (e.g. headless test runs)
-    getStream: () => navigator.mediaDevices.getUserMedia({
+    getStream: async () => (stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    }),
+    })),
     ...level,
     redemptionMs: 900, // this much silence ends your turn; short pauses mid-sentence do not
     preSpeechPadMs: 400,
@@ -58,7 +59,9 @@ export async function createVadListener({ onSpeechStart, onSpeechEnd, onMisfire,
     kind: "vad",
     start: () => vad.start(),
     pause: () => vad.pause(),
-    destroy: () => vad.destroy(),
+    destroy: () => { vad.destroy(); stream?.getTracks().forEach((t) => t.stop()); },
+    /** Is the microphone still delivering sound? Ended (unplugged, taken by another app) it is not. */
+    live: () => !stream || stream.getAudioTracks().some((t) => t.readyState === "live"),
     /** Raise the bar while Buddy talks out of speakers so its own voice does not count as you. */
     strict: (on) => { if (on === strict) return; strict = on; vad.setOptions(options()); },
     sensitivity: (name) => { level = SENSITIVITY[name] ?? SENSITIVITY.normal; vad.setOptions(options()); },

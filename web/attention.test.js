@@ -185,3 +185,12 @@ test("a risky request needs 'confirm': a yes, or a cough heard as one, is asked 
   assert.equal(c.state.mode, "awaiting");
   assert.equal(classify("Confirm."), "confirm");
 });
+
+test("the assistant never says she herself is waiting on you", () => {
+  const mine = { uid: 1, kind: "permission", name: "Ada", project: "ada", self: true, text: "I'd like to take Juno off the team." };
+  const juno = { uid: 2, kind: "question", name: "Juno", project: "juno", text: "Juno asks: SQLite or Postgres?" };
+  assert.equal(headsUpLine([mine]), "I need your answer on something. Want to hear it?");
+  assert.equal(headsUpLine([juno, mine]), "Juno is waiting on you, and I need your answer on something too. Want to hear them?");
+  const q = { uid: 3, kind: "question", name: "Ada", project: "ada", self: true, text: "I have a question: a website or a game?" };
+  assert.deepEqual(urgent(createAttention(), q, 0).say, ["I have a question: a website or a game?"]);
+});

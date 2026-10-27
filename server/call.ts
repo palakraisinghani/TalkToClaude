@@ -124,6 +124,8 @@ class Project {
   told: { session: unknown; header: string; team: Map<string, string>; turns: number } | null = null;
   /** The exact model Claude Code reports this agent running, once it has said. */
   running = "";
+  /** Tools it has started and not yet finished: running a command, not talking. */
+  toolsRunning = new Set<string>();
   /** The mode to return to once a plan is approved. */
   afterPlan: PermissionMode = "auto";
   /** A setting changed mid-turn that needs a fresh process: restart when the turn ends. */
@@ -325,11 +327,15 @@ export class Call {
    * what the agent already knows, while the work carries on. If it is really new work, the agent
    * says so, and it is queued as a proper follow-up, with a spoken acknowledgement right away.
    */
-  async btw(id: string, text: string): Promise<void> {
+  async btw(id: string, text: string, ctx: CallContext | null = null): Promise<void> {
     const p = this.projects.get(id);
     if (!p) return;
     if (this.closed) return;
-    if (!p.session?.isBusy()) return this.ask(id, text);
+    if (!p.session?.isBusy()) return this.ask(id, text, ctx);
+    // Busy talking, not running anything: the lead cut in on what it was saying, so it stops and
+    // answers them, knowing what they heard. (As a side question, the rest of its reply was still
+    // read out afterwards, as if they had not spoken.) A command in progress is never cut off.
+    if (p.toolsRunning.size === 0) return this.ask(id, text, { kind: "interrupted", ...(ctx ?? {}), working: true });
     const session = p.session;
     const turn = p.turn;
     this.emit(p, { type: "btw", project: id, turn, phase: "asked", text });
@@ -1260,6 +1266,7 @@ export class Call {
         this.emit(p, { type: "thinking", project: id, turn, text: ev.text });
         break;
       case "tool": {
+        p.toolsRunning.add(ev.id);
         // a long stretch of work gets one gentle word to the lead, who may want to check in
         if (!p.central && !p.toldLong && p.workSince && Date.now() - p.workSince > LONG_WORK_MS) {
           p.toldLong = true;
@@ -1278,6 +1285,7 @@ export class Call {
         break;
       }
       case "tool_result":
+        p.toolsRunning.delete(ev.id);
         rememberImages(p, String(ev.detail ?? ""));
         this.emit(p, { type: "tool_result", project: id, turn, id: ev.id, ok: ev.ok, summary: ev.summary, detail: ev.detail, images: ev.images });
         break;
@@ -1370,6 +1378,7 @@ export class Call {
           else if (!p.session?.isBusy()) this.queue(notification("finished", p.config.name, id, { said: [p.report], full: p.said.join(" ") }));
         }
         this.publish();
+        if (!p.session?.isBusy()) p.toolsRunning.clear();
         if (p.restartAfterTurn && !p.session?.isBusy()) { p.restartAfterTurn = false; this.restartWhenFree(p); }
         p.carried.delete(turn);
         p.cutNoted.delete(turn);
