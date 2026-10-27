@@ -46,6 +46,14 @@ const LOCAL_KINDS = [
   [STATUS, "status"], [STOP_ALL, "stop-all"], [UPDATES, "updates"], [STANDUP, "standup"], [NEXT, "next"], [MORE, "more"], [HOLD, "hold"], [UNHOLD, "unhold"], [DONE, "done"], [BACK, "back"], [TEACH, "teach"],
 ];
 
+/** What joins a request for the agent you are being put through to: "…and ask her to run the tests". */
+const JOINED = /^(?:(?:and|so|then) )?(?:(?:ask|tell) (?:her|him|them|it) (?:to |that )?|have (?:her|him|them) |let (?:her|him|them) know (?:that )?)|^(?:and|so|then) /;
+/** Nothing of substance: greetings, names, "can you", "please". */
+function isFiller(words, projects) {
+  const names = new Set(projects.flatMap((p) => [norm(p.name), ...(p.aliases ?? []).map(norm)]));
+  return words.split(" ").every((w) => !w || names.has(w) || /^(?:hi|hey|hello|okay|ok|so|now|just|please|thanks|thank|you|can|could|would|will|kindly|go|ahead|right|alright|yeah|yes)$/.test(w));
+}
+
 /** Words before a name that make it part of the sentence, not someone being called. */
 const NOT_CALLED = /^(to|with|for|from|about|and|or|ask|tell|than|like|of|at|by|call|named|called|is|was)$/;
 const TAKE = /\b(?:take me (?:over )?to|put me (?:through|over) to|switch me (?:over )?to|connect me (?:to|with)|let me (?:talk|speak) (?:to|with)|i (?:want|need|would like|'?d like) to (?:talk|speak) (?:to|with)|can i (?:talk|speak) (?:to|with)|go back to|back over to|over to) (\w+)\b/;
@@ -248,9 +256,20 @@ export function route(raw, projects, { waiting = null } = {}) {
   const take = TAKE.exec(t);
   if (take) {
     const target = findExact(projects, take[take.length - 1]) ?? findNear(projects, take[take.length - 1]) ?? findSound(projects, take[take.length - 1], { loose: true });
-    // "…connect me to Ada and ask her to switch me to Juno": the rest goes with you, as a note
-    const rest = t.slice(take.index + take[0].length).trim().replace(/^(?:and |so |then )?(?:(?:ask|tell) (?:her|him|them|it) (?:to |that )?|have (?:her|him|them) |let (?:her|him|them) know (?:that )?)?/, "").trim();
-    if (target && rest.split(" ").length >= 2) return { kind: "handoff", project: target.id, text: rest };
+    const before = t.slice(0, take.index).trim();
+    const after = t.slice(take.index + take[0].length).trim();
+    // "…connect me to Ada and ask her to switch me to Juno": what is joined on as a request for
+    // them goes with you, as a note
+    const forThem = JOINED.exec(after);
+    // Anything else said with it is for whoever you are talking to now: "Hand over to Milo. I think
+    // you are stupid." is said to Ada, not passed to Milo. Then it all goes to them, and they reply
+    // and hand you over themselves (Ada's <switch>, an agent's <handoff>).
+    const other = (before && !isFiller(before, projects)) || (after && !forThem && !isFiller(after, projects));
+    if (target && other) return { kind: "ask", text: raw.trim() };
+    if (target && forThem) {
+      const note = after.slice(forThem[0].length).trim();
+      if (note.split(" ").length >= 2) return { kind: "handoff", project: target.id, text: note };
+    }
     if (target) return { kind: "focus", project: target.id };
   }
 

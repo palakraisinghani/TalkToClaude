@@ -231,3 +231,14 @@ test("a name switches only when called: alone, opening the sentence, or closing 
   assert.deepEqual(route("Can you run the tests, Juno?", P), { kind: "address", project: "juno", text: "Can you run the tests?" });
   assert.deepEqual(route("Make the lights brighter, Kiwi.", P), { kind: "address", project: "kiwi", text: "Make the lights brighter." });
 });
+
+test("handing over: only what is asked of the next agent goes to them; anything else is for whoever you are talking to", () => {
+  const P = [{ id: "ada", name: "Ada", central: true }, { id: "milo", name: "Milo" }, { id: "juno", name: "Juno" }];
+  assert.deepEqual(route("Hand over to Milo. I think you are stupid.", P), { kind: "ask", text: "Hand over to Milo. I think you are stupid." });
+  assert.deepEqual(route("Hand over to Milo, I think you are stupid", P).kind, "ask");
+  assert.deepEqual(route("You got that wrong. Take me to Juno.", P).kind, "ask");
+  assert.deepEqual(route("Take me to Juno", P), { kind: "focus", project: "juno" });
+  assert.deepEqual(route("Ada, can you take me to Juno please", P), { kind: "focus", project: "juno" });
+  assert.deepEqual(route("Can you take me to Juno and ask her to run the tests", P), { kind: "handoff", project: "juno", text: "run the tests" });
+  assert.deepEqual(route("Put me through to Milo and tell him the build failed", P), { kind: "handoff", project: "milo", text: "the build failed" });
+});
