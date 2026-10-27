@@ -124,6 +124,8 @@ class Project {
   told: { session: unknown; header: string; team: Map<string, string>; turns: number } | null = null;
   /** The exact model Claude Code reports this agent running, once it has said. */
   running = "";
+  /** What it reported from work done in the background since the lead last talked with it. */
+  backgroundReports: string[] = [];
   /** Tools it has started and not yet finished: running a command, not talking. */
   toolsRunning = new Set<string>();
   /** The mode to return to once a plan is approved. */
@@ -259,10 +261,34 @@ export class Call {
   }
 
   /** Put an agent on the line. The one leaving keeps working, quietly and more cautiously. */
-  focus(id: string | null): void {
+  focus(id: string | null, { introduce = false } = {}): void {
     if (this.closed) return;
     const to = id ?? CENTRAL_ID;
     if (!this.projects.has(to) || this.focused === to) return;
+    this.focusMoved(to);
+    // put through to an agent (by name, or by Ada): it says hello itself, catches the lead up on
+    // what it did in the background, then asks what it needs — unless it is in the middle of work
+    const p = this.projects.get(to)!;
+    if (introduce && !p.central && !p.session?.isBusy()) this.introduce(p);
+  }
+
+  /** The agent just put through says who it is, what it finished meanwhile, and what it needs. */
+  private introduce(p: Project): void {
+    const name = p.config.name;
+    const done = p.backgroundReports.splice(0);
+    const lines = [
+      `[ClaudeCall: the lead has just been put through to you, and you are on the line now. Open with one short line saying it's you ("${name} here.").`,
+      done.length
+        ? `Since you last talked with them you finished this in the background: ${done.map((r) => `"${r}"`).join("; ")}. Sum that up in two or three spoken sentences: what is done, and anything that went wrong or is still open.`
+        : `If you did work since you last talked with them, say in a sentence or two what you finished; if not, skip this.`,
+      p.pendingQuestion ? `Then ask your open question again: "${oneLine(p.pendingQuestion)}".` : `Then ask anything you need from them, or what they'd like next.`,
+      `Keep it brief: a hello and a catch-up, not a report.]`,
+    ];
+    this.opts.send({ type: "introducing", project: p.config.id });
+    this.ask(p.config.id, lines.join(" "), null, { keepFocus: true, intro: true });
+  }
+
+  private focusMoved(to: string): void {
     const leaving = this.projects.get(this.focused);
     if (leaving) {
       // nobody is listening to approve things now, so drop it to its background mode
@@ -280,7 +306,7 @@ export class Call {
    * Send a message to an agent. By default it is put on the line first; `keepFocus` leaves the
    * line where it is, which is how work is handed to a project in the background.
    */
-  ask(to: string | null | undefined, text: string, ctx?: CallContext | null, { keepFocus = false, from = "", queue = false, assigned = false } = {}): void {
+  ask(to: string | null | undefined, text: string, ctx?: CallContext | null, { keepFocus = false, from = "", queue = false, assigned = false, intro = false } = {}): void {
     if (this.closed) return;
     const id = to && this.projects.has(to) ? to : this.focused;
     if (!keepFocus) this.focus(id);
@@ -327,7 +353,9 @@ export class Call {
       }, FILLER_MS);
     }
     // through emit, so the transcript records what the lead said, not just the replies
-    this.emit(p, { type: "turn", project: id, turn, text, background: !onLine || undefined, queued: queued || undefined, assigned: assigned || undefined });
+    // the lead talking to it on the line: what it did in the background has been caught up on
+    if (onLine && !p.central && !intro && !assigned && !from) p.backgroundReports = [];
+    this.emit(p, { type: "turn", project: id, turn, text, background: !onLine || undefined, queued: queued || undefined, assigned: assigned || undefined, intro: intro || undefined });
     this.publish();
   }
 
@@ -876,7 +904,7 @@ export class Call {
       case "switch": {
         const p = this.find(attrs.to);
         if (!p) return `There is no project called "${attrs.to}".`;
-        this.focus(p.config.id);
+        this.focus(p.config.id, { introduce: true });
         return null;
       }
       case "delegate": {
@@ -1370,6 +1398,8 @@ export class Call {
         // the one-line report is the opening of its final answer — the verdict — not its last line
         if (!ev.interrupted) p.report = (p.answer.length ? summarise([p.answer[0]]) : summarise(p.said)) || p.report;
         if (!p.central && !ev.interrupted) this.notebook.status(p.config.name, p.report);
+        // done out of the lead's hearing: kept for its hello when they are next put through
+        if (!p.central && !onLine && !ev.interrupted && p.report) p.backgroundReports = [...p.backgroundReports, p.report].slice(-6);
         // a background turn that ends on a question is a question, tagged or not
         if (!onLine && !ev.interrupted && !p.pendingQuestion && !p.central && /\?$/.test(p.report) && p.said.length) p.pendingQuestion = p.report;
         if (onLine) p.pendingQuestion = null; // asked out loud, to someone listening

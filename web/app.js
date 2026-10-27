@@ -74,6 +74,9 @@ let queue = []; // { uid, project, name, kind, text, detail, requestId, question
 let queueSeq = 0;
 let att = attention.createAttention();
 let quietHandover = null; // a focus change the assistant has already spoken for
+// An agent just put through says hello itself (server: introduce): the assistant does not
+// announce it, and what it is waiting on you for is asked once its hello is done.
+let intro = null; // { project, turn }
 let talkingId = null; // whose voice is coming out right now
 let drawnFocus = null; // who the stage last showed, so a change of floor can be animated
 let cameFrom = null; // the agent you left to talk to the assistant, so "back" can return you
@@ -1696,6 +1699,7 @@ function onServer(m) {
     }
     case "turn": {
       if (dropped.has(key(m.project, m.turn))) break;
+      if (m.intro) intro = { project: m.project, turn: m.turn };
       if (m.project === focusedId) {
         currentTurn = m.turn;
         working = true;
@@ -1706,12 +1710,13 @@ function onServer(m) {
       // what the clean-up pass changed is shown, quietly, under what it understood
       const heardAs = /\s*\[speech recognition heard: "([^"]*)"\]\s*$/.exec(m.text);
       const asked = heardAs ? m.text.slice(0, heardAs.index) : m.text;
-      c.el.querySelector(".qt").textContent = asked;
+      // its hello was asked for by ClaudeCall, not said by you
+      c.el.querySelector(".qt").textContent = m.intro ? "(put through: says hello)" : asked;
       if (heardAs && !c.el.querySelector(".heardas")) c.el.querySelector(".q").insertAdjacentHTML("afterend", `<div class="heardas">heard: “${esc(heardAs[1])}”</div>`);
       m = { ...m, text: asked };
       const tag = m.assigned ? "from Ada" : m.queued ? "queued behind work" : m.background ? "background" : "";
       if (tag && !c.el.querySelector(".bg")) c.el.querySelector(".who").insertAdjacentHTML("afterend", `<span class="bg">${tag}</span>`);
-      activity.set(m.project, { text: m.text.length > 90 ? m.text.slice(0, 89) + "…" : m.text, live: true });
+      activity.set(m.project, { text: m.intro ? "Saying hello and catching you up." : m.text.length > 90 ? m.text.slice(0, 89) + "…" : m.text, live: true });
       const pipe = pipeline.get(m.project);
       if (pipe && m.assigned && pipe.step < 1) pipeline.set(m.project, { step: 1, at: Date.now() });
       scrollFeed();
@@ -1763,6 +1768,7 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "introducing": quietHandover = m.project; break;
     case "hello":
       // the server was updated while this page was open: load the new page that goes with it
       if (serverBuild && m.build !== serverBuild && !onCall) return location.reload();
@@ -1800,6 +1806,12 @@ function onServer(m) {
     case "done":
       finishCard(m.project, m.turn, m.interrupted);
       activity.delete(m.project); // the seat falls back to the agent's own report
+      // its hello is over: now what it is waiting on you for, if anything
+      if (intro && intro.project === m.project && intro.turn === m.turn) {
+        intro = null;
+        const pending = attention.order(queue).find((i) => i.project === m.project && i.kind === "permission");
+        if (pending && m.project === focusedId) afterSpeech(() => obey(attention.urgent(att, pending, Date.now())));
+      }
       if (!m.interrupted) bumpPipeline(m.project, 3);
       if (mine) {
         liveTurns.delete(m.turn);

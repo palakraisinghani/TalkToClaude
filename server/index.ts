@@ -426,7 +426,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
         break;
       }
       case "focus":
-        call?.focus(m.project ? String(m.project) : null);
+        call?.focus(m.project ? String(m.project) : null, { introduce: true });
         break;
       case "btw":
         if (typeof m.text === "string" && m.text.trim()) call?.btw(String(m.project ?? ""), m.text.trim(), m.context ?? null).catch((e) => console.error(e));
