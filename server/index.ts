@@ -233,6 +233,14 @@ const wss = new WebSocketServer({
  * been idle for a while, or after a few hours regardless.
  */
 let away: { call: Call; since: number; news: Record<string, any>[]; timer: ReturnType<typeof setInterval> } | null = null;
+
+/**
+ * The page the call is on. There is one call, not one per page: with the app's window and a
+ * browser tab both open, each used to run a call of its own — two Adas hearing the same microphone
+ * and answering at once, two voices over each other. A call started in a second page now moves
+ * there; the first is told, and stops listening and speaking.
+ */
+let onCallIn: { ws: WebSocket; release: () => Call | null } | null = null;
 const AWAY_MAX_MS = 3 * 60 * 60_000;
 const AWAY_IDLE_MS = 20 * 60_000;
 function leaveRunning(c: Call) {
@@ -314,6 +322,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
   const endCall = () => {
     const c = call;
     call = null;
+    if (onCallIn?.ws === ws) onCallIn = null;
     if (!c) return;
     // hanging up while the team is still busy leaves them working; otherwise the call ends
     if (c.busy()) leaveRunning(c);
@@ -382,6 +391,18 @@ wss.on("connection", (ws: WebSocket, req: any) => {
     switch (m.type) {
       case "call-start":
         if (call || starting) break;
+        // already on a call in another page: it moves here, with everything it is in the middle of
+        if (onCallIn && onCallIn.ws !== ws) {
+          const moved = onCallIn.release();
+          if (moved) {
+            call = moved;
+            call.setSend(sendOut);
+            call.setMode(mode);
+            onCallIn = { ws, release: releaseHere };
+            call.republish();
+            break;
+          }
+        }
         // a call left running while the lead was away: rejoin it, and say what happened
         if (away) {
           const back = away;
@@ -400,6 +421,7 @@ wss.on("connection", (ws: WebSocket, req: any) => {
           const list = await roster();
           // hung up while it was getting ready: make nothing, so nothing is left running
           if (ws.readyState !== ws.OPEN) return;
+          onCallIn = { ws, release: releaseHere };
           const c = new Call({ projects: list, home: homeDir, systemPrompt, centralPrompt, callsDir, rosterFile, rewriter, send: sendOut, centralModel: saved.model, centralAliases: saved.aliases, centralSound: saved.sound, centralMode: saved.permissionMode, centralEffort: saved.effort, notebook });
           call = c;
           c.setMode(mode);
@@ -625,7 +647,16 @@ wss.on("connection", (ws: WebSocket, req: any) => {
     }
   };
 
-  ws.on("close", () => { sockets.delete(ws); endCall(); });
+  /** Hand this page's call to another page: this one is told it moved, and lets go of it. */
+  function releaseHere(): Call | null {
+    const c = call;
+    call = null;
+    if (onCallIn?.ws === ws) onCallIn = null;
+    send({ type: "call-moved" });
+    return c;
+  }
+
+  ws.on("close", () => { sockets.delete(ws); endCall(); if (onCallIn?.ws === ws) onCallIn = null; });
 });
 
 // Listening on every interface means dual stack: binding 0.0.0.0 alone is IPv4 only, and macOS

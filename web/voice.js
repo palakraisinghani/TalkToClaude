@@ -74,7 +74,10 @@ export class Voice {
    * replayed or reported. front=true puts it next in line, after the sentence being spoken: this
    * is how the central voice reads out an update without ever cutting anyone off mid-sentence.
    */
-  say(text, turn, { record = true, identity = null, front = false, speaker = null, keep = false } = {}) {
+  say(text, turn, { record = true, identity = null, front = false, speaker = null, keep = false, force = false } = {}) {
+    // a page not on a call says nothing: another window may have the call (`force`: a voice
+    // preview asked for in Settings, a goodbye as the call ends)
+    if (!this.enabled && !force) return;
     // fillers never pile up; `keep` is for lines that are not fillers but should not be replayed
     // as what the lead heard either: a stand-up round, a repeat
     if (!record && !front && !keep && (this.busy || this.held)) return;
@@ -210,6 +213,10 @@ export class Voice {
 
   #speak(item) {
     if (this.held) { this.queue.unshift(item); return; }
+    // one voice at a time: anything still sounding from before (a browser voice that never said it
+    // had finished, the other engine) is stopped before this one starts
+    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    this.engine?.stopAll?.();
     const start = item.start ?? 0;
     const c = { ...item, start, at: 0 };
     // voices placed in space, when the stereo engine is on; it falls back to the browser's speech
@@ -241,6 +248,8 @@ export class Voice {
     c.watchdog = setTimeout(() => {
       if (this.current !== c) return;
       console.warn("speech never reported its end; moving on", c.text.slice(0, 60));
+      // it may still be talking without saying so: silenced, so the next one never talks over it
+      speechSynthesis.cancel();
       finish();
     }, budget);
     const finish = () => {

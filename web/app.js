@@ -9,6 +9,7 @@ import { StereoEngine } from "./stereo.js";
 import { DEFAULT_MODEL, MODELS, modelChoices, modelLabel } from "./models.js";
 import { controlOf, EFFORTS, MODES, modeName, SLASH_HELP, slashOf } from "./controls.js";
 import { initDeck } from "./deck.js";
+import { thoughtWait } from "./turn.js";
 import { drawDiagrams } from "./diagram.js";
 import { rateName, suggestNames } from "./namecheck.js";
 import * as attention from "./attention.js";
@@ -740,7 +741,7 @@ function drawVoices() {
         input.onchange = () => sendSound(k, +input.value);
       }
       row.querySelector("[data-k=pan]").onchange = (e) => sendSound("pan", +e.target.value);
-      row.querySelector(".play").onclick = () => voice.say(`Hi, I'm ${project(p.id)?.name ?? p.name}. This is how I sound.`, 0, { record: false, keep: true, identity: project(p.id)?.identity, speaker: p.id });
+      row.querySelector(".play").onclick = () => voice.say(`Hi, I'm ${project(p.id)?.name ?? p.name}. This is how I sound.`, 0, { record: false, keep: true, identity: project(p.id)?.identity, speaker: p.id, force: true });
       voiceRows.set(p.id, row);
     }
     if (list.children[i] !== row) list.insertBefore(row, list.children[i] ?? null);
@@ -1814,6 +1815,7 @@ function onServer(m) {
     case "app-setting": appSetting(m.name, m.value); break;
     case "name-test": nameTested(m); break;
     case "claude-status": claudeStatus(m); break;
+    case "call-moved": endCall("This call moved to another window, which is talking and listening now.", { moved: true }); break;
     case "questions": showQuestions(m); break;
     case "introducing": quietHandover = m.project; break;
     case "hello":
@@ -1895,7 +1897,24 @@ const mustKeep = (t) => LOCAL.some((re) => re.test(t)) || attention.classify(t) 
   || !!calledBy(t, projects);
 
 let inputTyped = false; // the line being handled was typed, not spoken
-function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {}) {
+// ---------- waiting for the whole thought ----------
+// A pause of a second ended your turn, so a prompt said with a breath in the middle reached the
+// agent in pieces, and it started answering the first half. Now what you said waits a moment
+// before it is sent — longer when it sounds unfinished — and anything you add meanwhile joins it.
+let pendingThought = "", thoughtTimer = 0;
+const endOfTurnWait = (text) => thoughtWait(text, projects, { awaiting: att.mode === "awaiting" });
+function holdThought(text, wait) {
+  pendingThought = text;
+  showYou(`${text} …`, true);
+  clearTimeout(thoughtTimer);
+  thoughtTimer = setTimeout(() => {
+    const whole = pendingThought;
+    pendingThought = "";
+    if (whole) heardText(whole, { final: true });
+  }, wait);
+}
+
+function heardText(raw, { typed = false, voicedMs = Infinity, match = null, final = false } = {}) {
   inputTyped = typed;
   // learning how the lead says a name: everything heard is a try at it, nothing is routed
   if (teach && !typed) return teachHeard(raw);
@@ -1932,6 +1951,8 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
   const overVoice = !$("phones").checked && voice.speaking;
   if (!typed && hearing && !overVoice) { if (raw) carry = `${carry} ${raw}`.trim(); return; }
   if (!typed && carry) { raw = `${carry} ${raw}`; carry = ""; }
+  // what you said before a pause is still waiting: this is the rest of it
+  if (!typed && !final && pendingThought) { raw = `${pendingThought} ${raw}`; pendingThought = ""; clearTimeout(thoughtTimer); }
   let text = raw.trim();
   let t = norm(text);
   // Talking over a voice on speakers records both of you: the browser cannot cancel its own speech
@@ -1990,6 +2011,16 @@ function heardText(raw, { typed = false, voicedMs = Infinity, match = null } = {
     undip();
     render();
     return;
+  }
+  // A moment more, in case there is more to come — a cut-in too: the voice stays paused meanwhile,
+  // and the agent gets your whole sentence, not its first half
+  if (!typed && !final) {
+    const wait = endOfTurnWait(text);
+    if (wait > 0) {
+      if (voice.speaking && !voice.held) { voice.hold(); ducked = true; }
+      holdThought(text, wait);
+      return;
+    }
   }
   showYou(text);
   // Talking over a voice holds it. Whatever this turns out to be, the hold is let go afterwards —
@@ -2419,6 +2450,7 @@ function resumeBuddy() {
 async function startCall() {
   if (onCall) return;
   onCall = true;
+  voice.enabled = true;
   callStart = lastActivity = Date.now();
   $("callBtn").classList.add("end");
   showIcon($("callBtn"), "phoneOff", 26);
@@ -2456,6 +2488,7 @@ async function openListener() {
       onMisfire: () => {
         hearing = false;
         undip();
+        if (pendingThought) holdThought(pendingThought, 700);
         if (ringAfterSpeech) { ringAfterSpeech = false; ring(ringFrom); }
         if (carry) { const c = carry; carry = ""; heardText(c); return; }
         if ((ducked || continuing) && !userPaused) voice.resume();
@@ -2483,9 +2516,11 @@ async function openListener() {
   }
 }
 
-function endCall(message) {
+function endCall(message, { moved = false } = {}) {
   if (!onCall) return;
   onCall = false;
+  pendingThought = "";
+  clearTimeout(thoughtTimer);
   // an update arrived during the call: take it now that the call is over
   if (updatePending) setTimeout(() => location.reload(), 1500);
   clearInterval(sleepTimer);
@@ -2496,7 +2531,9 @@ function endCall(message) {
   userPaused = false;
   hearing = false;
   greetPending = false;
-  send({ type: "call-end" });
+  voice.enabled = false;
+  // moved to another window: the call goes on there, so it is not ended from here
+  if (!moved) send({ type: "call-end" });
   working = false;
   projects = [];
   focusedId = confirmedFocus = wantFocus = null;
@@ -2507,7 +2544,9 @@ function endCall(message) {
   $("callBtn").title = "Start the call";
   for (const id of ["muteBtn", "pauseBtn", "typeBox"]) $(id).disabled = true;
   $("timer").textContent = "call ended";
-  if (message) central.say(message);
+  // moved: the other window is talking now, so this one shows it rather than saying it
+  if (message && moved) feedNote(message);
+  else if (message) voice.say(message, 0, { record: false, keep: true, identity: centralIdentity, speaker: centralId, force: true });
   render();
 }
 
@@ -2540,6 +2579,8 @@ function undip() {
 function onSpeechStart() {
   if (!onCall || muted) return;
   bargeVoiced = 0;
+  // more coming: what is waiting is not sent until this is heard too
+  clearTimeout(thoughtTimer);
   hearing = true;
   lastActivity = Date.now();
   // hold (not drop) the reply: if this turns out to be noise it plays on, if it is more of your sentence it is replaced
@@ -3066,3 +3107,6 @@ render();
 // certificate they do not trust (the self-signed one on a local network), which is fine: it only
 // adds the "can't reach your computer" page
 if ("serviceWorker" in navigator && isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// for tests in a browser: feed in what the microphone would have heard (?debug only)
+if (new URLSearchParams(location.search).has("debug")) window.__cc = { heard: (t) => { hearing = false; heardText(t); }, onSpeechStart: () => onSpeechStart() };

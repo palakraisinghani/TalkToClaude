@@ -107,6 +107,7 @@ export class StereoEngine {
     this.width = width;
     this.cache = new Map(); // text+voice -> Promise<AudioBuffer>
     this.playing = null; // { out, base }: the sentence now sounding, for duck()
+    this.handles = new Set(); // every sentence started and not yet over, for stopAll()
     this.ducked = false;
   }
 
@@ -179,16 +180,24 @@ export class StereoEngine {
         const at = (startAt + w.t + delay - ctx.currentTime) * 1000;
         timers.push(setTimeout(() => { if (!stopped) onWord(w.index, w.length); }, Math.max(0, at)));
       }
-      src.onended = () => { if (this.playing?.out === out) this.playing = null; if (!stopped) { stopped = true; onEnd(false); } };
+      src.onended = () => { this.handles.delete(handle); if (this.playing?.out === out) this.playing = null; if (!stopped) { stopped = true; onEnd(false); } };
       src.start(startAt);
     }).catch(() => { clearTimeout(late); if (!stopped) { stopped = true; onEnd(true); } });
-    return {
+    const handle = {
       stop: () => {
         stopped = true;
+        this.handles.delete(handle);
         clearTimeout(late);
         timers.forEach(clearTimeout);
         try { src?.stop(); } catch {}
       },
     };
+    this.handles.add(handle);
+    return handle;
+  }
+
+  /** Stop every sentence still sounding or about to: only one voice is ever heard at a time. */
+  stopAll() {
+    for (const h of [...this.handles]) h.stop();
   }
 }
